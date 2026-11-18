@@ -1,0 +1,48 @@
+name: Price tracker
+
+on:
+  schedule:
+    # 05:00, 13:00, 21:00 UTC = 07:00, 15:00, 23:00 Latvia time (winter, EET=UTC+2).
+    # GitHub cron has no DST: in summer these land an hour earlier local time.
+    - cron: '0 5,13,21 * * *'
+  workflow_dispatch: {}   # manual trigger from the Actions tab (instant command processing)
+
+permissions: {}           # nothing in the repo is written — state lives in a private gist
+
+concurrency:
+  group: price-tracker
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Run tracker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: python scraper.py

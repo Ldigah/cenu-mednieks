@@ -1,0 +1,52 @@
+{
+  "products": [
+    {
+      "id": "ugreen-lp923-salidzini",
+      "name": "UGREEN LP923",
+      "store_label": "salidzini.lv",
+      "url": "https://www.salidzini.lv/search?q=UGREEN+LP923"
+    },
+    {
+      "id": "ugreen-lp923-amazon-de",
+      "name": "UGREEN LP923",
+      "store_label": "amazon.de",
+      "url": "https://www.amazon.de/dp/B07PJ7VYP9"
+    },
+    {
+      "id": "ugreen-lp923-amazon-pl",
+      "name": "UGREEN LP923",
+      "store_label": "amazon.pl",
+      "url": "https://www.amazon.pl/dp/B0D2Q5M35Y"
+    },
+    {
+      "id": "jbl-flip-7-salidzini",
+      "name": "JBL Flip 7",
+      "store_label": "salidzini.lv",
+      "url": "https://www.salidzini.lv/search?q=JBL+Flip+7"
+    },
+    {
+      "id": "jbl-flip-7-amazon-de",
+      "name": "JBL Flip 7",
+      "store_label": "amazon.de",
+      "url": "https://www.amazon.de/dp/B0DXKMXPXW"
+    },
+    {
+      "id": "ugreen-lp923-pigu",
+      "name": "UGREEN LP923",
+      "store_label": "pigu.lt",
+      "url": "https://pigu.lt/lt/mobilus-telefonai-foto-ir-video/mobilus-telefonai-ir-ju-priedai/telefono-laikikliai/telefono-laikiklis-magnetyczny-uchwyt-samochodowy-na-kratke-wentylacyjna-ugreen?id=246286153"
+    },
+    {
+      "id": "jbl-flip-7-pigu",
+      "name": "JBL Flip 7",
+      "store_label": "pigu.lt",
+      "url": "https://pigu.lt/lt/garso-koloneles/jbl-flip-7-black?id=214850098"
+    },
+    {
+      "id": "jbl-flip-7-hinnavaatlus",
+      "name": "JBL Flip 7",
+      "store_label": "hinnavaatlus.ee",
+      "url": "https://www.hinnavaatlus.ee/5681989/jbl-flip-7-black/"
+    }
+  ]
+}
