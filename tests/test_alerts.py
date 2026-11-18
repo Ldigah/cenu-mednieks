@@ -31,7 +31,10 @@ def test_discount_deepens():
     old = {"price": 110.0, "old_price": 140.0}   # 30 € off before
     new = Extraction(price=100.0, old_price=150.0)  # 50 € off now
     events = diff_events(ENTRY, new, old)
-    assert len(events) == 1
+    # the price also dropped 110 → 100, so both a drop event and a discount event fire
+    assert len(events) == 2
+    assert any("100.00" in e for e in events)        # drop line
+    assert any("reg. 150.00" in e for e in events)   # discount line
 
 
 def test_discount_unchanged_no_alert():
