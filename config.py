@@ -3,6 +3,7 @@
 Constant values reflect the answers to QUESTIONS.md (2026-11-18, see DECISIONS.md).
 """
 import os
+import re
 
 try:
     from dotenv import load_dotenv
@@ -13,7 +14,16 @@ except ImportError:  # dotenv optional in CI (env comes from workflow)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GIST_TOKEN = os.environ.get("GIST_TOKEN", "")
-GIST_ID = os.environ.get("GIST_ID", "")
+
+
+def _normalize_gist_id(raw: str) -> str:
+    """Accept the bare id or a pasted gist URL (https://gist.github.com/user/<id>)."""
+    raw = (raw or "").strip()
+    m = re.search(r"([0-9a-fA-F]{32})", raw)
+    return m.group(1) if m else raw.rstrip("/").rsplit("/", 1)[-1]
+
+
+GIST_ID = _normalize_gist_id(os.environ.get("GIST_ID", ""))
 
 # --- tuned constants (QUESTIONS.md answers) ---
 DROP_ALERT_MIN_PCT = 1.0      # Q8: alert on drops >= 1%
