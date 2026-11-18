@@ -90,8 +90,17 @@ def iter_nodes(node):
             stack.extend(cur)
 
 
+def _is_offer(node: dict) -> bool:
+    t = node.get("@type")
+    if isinstance(t, str):
+        return t == "Offer"
+    if isinstance(t, list):
+        return "Offer" in t
+    return False
+
+
 def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
-    """Cheapest price from schema.org JSON-LD (Product → offers)."""
+    """Cheapest price from schema.org JSON-LD — Product→offers or standalone Offer blocks."""
     best = None
     for tag in soup.find_all("script", type="application/ld+json"):
         raw = tag.string or tag.get_text()
@@ -103,9 +112,12 @@ def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
             continue
         for node in iter_nodes(data):
             offers = node.get("offers")
-            if not offers:
+            if offers:
+                offers_list = offers if isinstance(offers, list) else [offers]
+            elif _is_offer(node):          # standalone Offer node (no Product parent)
+                offers_list = [node]
+            else:
                 continue
-            offers_list = offers if isinstance(offers, list) else [offers]
             for off in offers_list:
                 if not isinstance(off, dict):
                     continue
