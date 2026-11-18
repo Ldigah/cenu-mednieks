@@ -46,5 +46,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
-        # salidzini.lv + pigu.lt block datacenter IPs — the home-PC scheduled task covers them
-        run: python scraper.py --skip-stores "salidzini.lv,pigu.lt"
+        # salidzini/kurpirkt/ceno Cloudflare-challenge datacenter IPs; pigu is paused —
+        # the home-PC scheduled task covers the LV aggregators
+        run: python scraper.py --skip-stores "salidzini.lv,pigu.lt,kurpirkt.lv,ceno.lv"
