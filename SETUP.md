@@ -105,6 +105,13 @@ Notes:
 - The offset (…:15 vs …:00) keeps the two runners from writing the gist at the same moment.
 - Local runs send the same alerts; the daily digest is sent only by GitHub Actions (`--no-digest` locally).
 
+## Verify it works
+
+- Actions → **Price tracker**: latest run green, "Run tracker" log shows `OK <product-id>: <price> …` lines.
+- Telegram: `/prices` shows live prices for UGREEN LP923 and JBL Flip 7 across all tracked stores.
+- After a few runs: `/chart jbl` returns a price-history PNG.
+- Local task: `Start-ScheduledTask -TaskName 'Cenu Mednieks local tracker'` → salidzini/pigu rows update in `/prices`.
+
 ## Troubleshooting
 
 | Symptom | Fix |
