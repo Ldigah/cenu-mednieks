@@ -63,7 +63,20 @@ def fetch_requests(url: str) -> str:
 BOT_WALL_PHRASES = ("weiter shoppen", "kontynuuj zakupy", "continue shopping",
                     "kliknij poniższy przycisk", "klicke auf die schaltfläche")
 
-CAPTCHA_TITLES = ("robot check", "attention required", "just a moment", "access denied")
+CAPTCHA_TITLES = ("robot check", "attention required", "just a moment", "access denied",
+                  "ne robotas")
+
+
+def _wait_captcha_clear(page, timeout_s: int = 10) -> bool:
+    """Turnstile/CF managed challenges often auto-clear in a real engine — give them a chance."""
+    import time as _t
+    deadline = _t.time() + timeout_s
+    while _t.time() < deadline:
+        title = (page.title() or "").lower()
+        if not any(t in title for t in CAPTCHA_TITLES):
+            return True
+        _t.sleep(2)
+    return False
 
 
 def _dismiss_bot_wall(page) -> None:
@@ -96,19 +109,33 @@ def fetch_playwright(url: str, wait_selector: str = "body") -> str:
                 headless=True,
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
             try:
-                ctx = browser.new_context(user_agent=USER_AGENT, locale="en-US",
-                                          viewport={"width": 1366, "height": 900})
-                page = ctx.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=35_000)
-                title = (page.title() or "").lower()
-                if any(t in title for t in CAPTCHA_TITLES):
-                    raise FetchError(f"captcha page (title={page.title()!r})")
-                _dismiss_bot_wall(page)
-                page.wait_for_selector(wait_selector, timeout=20_000)
-                html = page.content()
-                if _looks_blocked(html):
-                    raise FetchError("anti-bot page after render", 403)
-                return html
+                last_err = None
+                for attempt in (1, 2):   # Amazon blocking is probabilistic — a retry pays off
+                    ctx = browser.new_context(user_agent=USER_AGENT, locale="en-US",
+                                              viewport={"width": 1366, "height": 900})
+                    try:
+                        page = ctx.new_page()
+                        page.goto(url, wait_until="domcontentloaded", timeout=35_000)
+                        title = (page.title() or "").lower()
+                        if any(t in title for t in CAPTCHA_TITLES):
+                            if not _wait_captcha_clear(page):
+                                raise FetchError(  # deterministic block — retrying won't help
+                                    f"captcha page (title={page.title()!r})")
+                        _dismiss_bot_wall(page)
+                        page.wait_for_selector(wait_selector, timeout=15_000)
+                        html = page.content()
+                        if _looks_blocked(html):
+                            raise FetchError("anti-bot page after render", 403)
+                        return html
+                    except FetchError as e:
+                        last_err = e
+                        if "captcha" in str(e):
+                            raise           # don't retry hard captchas
+                    except Exception as e:  # noqa: BLE001 — timeouts etc. get one retry
+                        last_err = FetchError(f"playwright {type(e).__name__}: {e}")
+                    finally:
+                        ctx.close()
+                raise last_err
             finally:
                 browser.close()
     except FetchError:
