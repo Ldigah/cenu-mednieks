@@ -159,13 +159,14 @@ def supported_store_list() -> str:
 register(SalidziniAdapter(
     domain="salidzini.lv",
     label="salidzini.lv (all LV shops)",
-    strategy="requests",
+    strategy="requests+playwright",   # /search works via requests usually; Playwright if Cloudflare bites
     selectors={  # CSS fallback only — JSON-LD AggregateOffer above is primary
         "price": "article a.product > data",
         "old_price": None,
         "availability": None,
         "cheapest_shop": "article a.shop > strong",
     },
+    wait_selector="article",
     notes="Use /search?q= URLs only (slug URLs → hCaptcha). Prices dot-decimal in "
           "JSON-LD, '73,00 €' in HTML. No discount data exists on this site.",
 ))

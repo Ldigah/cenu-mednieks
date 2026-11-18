@@ -60,6 +60,26 @@ def fetch_requests(url: str) -> str:
     raise last
 
 
+BOT_WALL_PHRASES = ("weiter shoppen", "kontynuuj zakupy", "continue shopping",
+                    "kliknij poniższy przycisk", "klicke auf die schaltfläche")
+
+
+def _dismiss_bot_wall(page) -> None:
+    """Amazon serves a clickable bot-check interstitial — click through it if present."""
+    try:
+        body = (page.inner_text("body") or "").lower()[:2000]
+        if not any(k in body for k in BOT_WALL_PHRASES):
+            return
+        for sel in ("input[type=submit]", "button", "a"):
+            loc = page.locator(sel)
+            if loc.count():
+                loc.first.click(timeout=3000)
+                page.wait_for_load_state("domcontentloaded")
+                return
+    except Exception:  # noqa: BLE001 — best effort; never break the fetch
+        pass
+
+
 def fetch_playwright(url: str, wait_selector: str = "body") -> str:
     """Headless Chromium fetch — for stores that block plain requests or render via JS."""
     try:
@@ -68,16 +88,25 @@ def fetch_playwright(url: str, wait_selector: str = "body") -> str:
         raise FetchError("playwright not installed "
                          "(pip install playwright && playwright install chromium)") from e
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        try:
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="en-US",
-                                      viewport={"width": 1366, "height": 900})
-            page = ctx.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-            page.wait_for_selector(wait_selector, timeout=30_000)
-            return page.content()
-        finally:
-            browser.close()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+            try:
+                ctx = browser.new_context(user_agent=USER_AGENT, locale="en-US",
+                                          viewport={"width": 1366, "height": 900})
+                page = ctx.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                _dismiss_bot_wall(page)
+                page.wait_for_selector(wait_selector, timeout=30_000)
+                html = page.content()
+                if _looks_blocked(html):
+                    raise FetchError("anti-bot page after render", 403)
+                return html
+            finally:
+                browser.close()
+    except FetchError:
+        raise
+    except Exception as e:  # noqa: BLE001 — Playwright raises its own error types
+        raise FetchError(f"playwright {type(e).__name__}: {e}") from e

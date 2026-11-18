@@ -32,25 +32,44 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _page_title(html_text: str) -> str:
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html_text, "html.parser")
+    t = soup.find("title")
+    return (t.get_text(strip=True) if t else "")[:120]
+
+
+def _extract_or_diag(entry: dict, html_text: str, adapter):
+    """Extract, and log diagnostics when no price is found (helps tell block vs drift)."""
+    ex = adapter.extract(html_text)
+    if ex.price is None:
+        log.warning("diag %s: len=%d title=%r blocked=%r",
+                    entry["id"], len(html_text), _page_title(html_text),
+                    fetch._looks_blocked(html_text))
+    return ("price not found on page" if ex.price is None else None), ex
+
+
 def scrape_entry(entry: dict):
     """→ (error: str | None, extraction: parse.Extraction | None)."""
     adapter = stores.adapter_for(entry["url"])
     try:
         if adapter.uses_playwright():
-            html_text = fetch.fetch_playwright(entry["url"], adapter.wait_selector)
-        else:
-            try:
-                html_text = fetch.fetch_requests(entry["url"])
-            except fetch.FetchError:
-                if adapter.strategy == "requests+playwright":
-                    log.info("%s: requests failed, trying playwright", entry["id"])
-                    html_text = fetch.fetch_playwright(entry["url"], adapter.wait_selector)
-                else:
-                    raise
-        ex = adapter.extract(html_text)
-        if ex.price is None:
-            return "price not found on page", ex
-        return None, ex
+            return _extract_or_diag(
+                entry, fetch.fetch_playwright(entry["url"], adapter.wait_selector), adapter)
+        try:
+            html_text = fetch.fetch_requests(entry["url"])
+        except fetch.FetchError:
+            if adapter.strategy == "requests+playwright":
+                log.info("%s: requests failed, trying playwright", entry["id"])
+                html_text = fetch.fetch_playwright(entry["url"], adapter.wait_selector)
+            else:
+                raise
+        err, ex = _extract_or_diag(entry, html_text, adapter)
+        if ex.price is None and adapter.strategy == "requests+playwright":
+            log.info("%s: no price via requests, trying playwright", entry["id"])
+            html2 = fetch.fetch_playwright(entry["url"], adapter.wait_selector)
+            return _extract_or_diag(entry, html2, adapter)
+        return err, ex
     except fetch.FetchError as e:
         return str(e), None
 
