@@ -7,7 +7,8 @@ on:
     - cron: '0 5,13,21 * * *'
   workflow_dispatch: {}   # manual trigger from the Actions tab (instant command processing)
 
-permissions: {}           # nothing in the repo is written — state lives in a private gist
+permissions:
+  contents: read          # checkout needs read access; nothing is ever written — state lives in a private gist
 
 concurrency:
   group: price-tracker

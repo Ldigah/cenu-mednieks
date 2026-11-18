@@ -5,7 +5,8 @@ on:
     - cron: '0 6 * * 1'   # Mondays 06:00 UTC = 08:00 Latvia (winter)
   workflow_dispatch: {}
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   check:
