@@ -15,6 +15,7 @@ import logging
 import sys
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import alerts
 import fetch
@@ -101,6 +102,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Cenu Mednieks price tracker")
     ap.add_argument("--local", action="store_true", help="local dry run (no gist, no Telegram)")
     ap.add_argument("--only", metavar="PART", help="scrape only matching entries")
+    ap.add_argument("--stores", metavar="DOMS",
+                    help="only entries on these store domains, comma-separated (e.g. salidzini.lv,pigu.lt)")
+    ap.add_argument("--skip-stores", metavar="DOMS",
+                    help="skip entries on these store domains (handled by another runner)")
     ap.add_argument("--health", action="store_true", help="health check: report failures only")
     ap.add_argument("--digest", action="store_true", help="force daily digest")
     ap.add_argument("--no-digest", action="store_true", help="suppress daily digest")
@@ -141,8 +146,15 @@ def main() -> int:
 
     # --- 2. Scrape ---
     ok = failed = 0
+    only_stores = {s.strip().lower() for s in args.stores.split(",")} if args.stores else set()
+    skip_stores = {s.strip().lower() for s in args.skip_stores.split(",")} if args.skip_stores else set()
     for entry in products["products"]:
         if args.only and args.only.lower() not in f"{entry['id']} {entry['name']}".lower():
+            continue
+        host = (urlparse(entry["url"]).hostname or "").lower().removeprefix("www.")
+        if only_stores and host not in only_stores:
+            continue
+        if skip_stores and host in skip_stores:
             continue
         err, ex = scrape_entry(entry)
         st = prices.setdefault(entry["url"], {})

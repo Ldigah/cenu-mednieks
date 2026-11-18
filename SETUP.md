@@ -69,11 +69,41 @@ python bootstrap.py           # prints GIST_ID=…
 3. In Telegram, send `/list` then **Run workflow** again — you should get the list back.
    From now on commands sent between runs are answered on the next run (3×/day), or instantly after a manual **Run workflow**.
 
-## Verify it works
+## Step 7 — Local PC runs (hybrid mode)
 
-- Actions → **Price tracker**: latest run green, "Run tracker" log shows `OK <product-id>: <price> …` lines.
-- Telegram: `/prices` shows live prices for UGREEN LP923 and JBL Flip 7 across all tracked stores.
-- After a few runs: `/chart jbl` returns a price-history PNG.
+GitHub's datacenter IPs are blocked by **salidzini.lv** (Cloudflare Turnstile) and **pigu.lt** (Cloudflare challenge) — but your home IP passes. So the work is split:
+
+| Runner | Stores | Schedule |
+|---|---|---|
+| GitHub Actions (free) | amazon.de, amazon.pl, hinnavaatlus.ee, any future `/add` | 07:00/15:00/23:00 Latvia (cron, UTC) |
+| Your PC (Task Scheduler) | salidzini.lv, pigu.lt | 07:15/15:15/23:15 Latvia |
+
+Both write to the **same state gist** and both answer Telegram commands — the split is invisible to you.
+
+One-time setup on the PC:
+
+```powershell
+# 1. Python 3.11+ (skip if installed)
+winget install -e --id Python.Python.3.11
+
+# 2. Dependencies (in the repo folder)
+cd C:\Users\Leon\Coding\cenu-mednieks
+python -m pip install -r requirements.txt
+
+# 3. Fill .env — paste your TELEGRAM_BOT_TOKEN and GIST_TOKEN (GIST_ID is prefilled)
+notepad .env
+
+# 4. Register the 3×/day scheduled task
+powershell -ExecutionPolicy Bypass -File .\setup-local-task.ps1
+
+# 5. Test one local run right now
+python scraper.py --stores "salidzini.lv,pigu.lt" --no-digest
+```
+
+Notes:
+- If the PC is off at a trigger time, that slot is simply missed (`StartWhenAvailable` catches up at next logon) — GitHub still covers the other stores.
+- The offset (…:15 vs …:00) keeps the two runners from writing the gist at the same moment.
+- Local runs send the same alerts; the daily digest is sent only by GitHub Actions (`--no-digest` locally).
 
 ## Troubleshooting
 

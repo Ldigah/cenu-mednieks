@@ -46,4 +46,5 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
-        run: python scraper.py
+        # salidzini.lv + pigu.lt block datacenter IPs — the home-PC scheduled task covers them
+        run: python scraper.py --skip-stores "salidzini.lv,pigu.lt"
