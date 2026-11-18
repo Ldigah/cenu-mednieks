@@ -20,7 +20,7 @@ if (-not $python) { throw "python.exe not found - install Python 3.11+ or add it
 Write-Host "Using python: $python"
 
 $action = New-ScheduledTaskAction -Execute $python `
-    -Argument "scraper.py --stores salidzini.lv --no-digest" `
+    -Argument "scraper.py --stores salidzini.lv,kurpirkt.lv --no-digest" `
     -WorkingDirectory $repo
 
 $triggers = @(

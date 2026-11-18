@@ -53,6 +53,30 @@
       "name": "JBL Flip 7",
       "store_label": "hinnavaatlus.ee",
       "url": "https://www.hinnavaatlus.ee/5681989/jbl-flip-7-black/"
+    },
+    {
+      "id": "ugreen-lp923-kurpirkt",
+      "name": "UGREEN LP923",
+      "store_label": "kurpirkt.lv",
+      "url": "https://www.kurpirkt.lv/cena.php?q=ugreen+lp923"
+    },
+    {
+      "id": "jbl-flip-7-kurpirkt",
+      "name": "JBL Flip 7",
+      "store_label": "kurpirkt.lv",
+      "url": "https://www.kurpirkt.lv/cena.php?q=flip+7+jbl&p1=50"
+    },
+    {
+      "id": "ugreen-lp923-ceno",
+      "name": "UGREEN LP923",
+      "store_label": "ceno.lv",
+      "url": "https://ceno.lv/search?q=UGREEN+LP923"
+    },
+    {
+      "id": "jbl-flip-7-ceno",
+      "name": "JBL Flip 7",
+      "store_label": "ceno.lv",
+      "url": "https://ceno.lv/search?q=JBL+Flip+7"
     }
   ]
 }
