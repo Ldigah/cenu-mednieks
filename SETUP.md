@@ -76,7 +76,9 @@ GitHub's datacenter IPs are blocked by **salidzini.lv** (Cloudflare Turnstile) a
 | Runner | Stores | Schedule |
 |---|---|---|
 | GitHub Actions (free) | amazon.de, amazon.pl, hinnavaatlus.ee, any future `/add` | 07:00/15:00/23:00 Latvia (cron, UTC) |
-| Your PC (Task Scheduler) | salidzini.lv, pigu.lt | 07:15/15:15/23:15 Latvia |
+| Your PC (Task Scheduler) | salidzini.lv | 07:15/15:15/23:15 Latvia |
+
+*pigu.lt is currently paused: its Cloudflare flagged both GitHub's and the home IP after heavy retries. Its Latvian prices are largely covered by salidzini.lv anyway (220.lv is the same group). Re-add later with `/add <pigu-url>` once it cools down.*
 
 Both write to the **same state gist** and both answer Telegram commands — the split is invisible to you.
 
@@ -97,7 +99,7 @@ notepad .env
 powershell -ExecutionPolicy Bypass -File .\setup-local-task.ps1
 
 # 5. Test one local run right now
-python scraper.py --stores "salidzini.lv,pigu.lt" --no-digest
+python scraper.py --stores "salidzini.lv" --no-digest
 ```
 
 Notes:

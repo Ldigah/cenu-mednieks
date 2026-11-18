@@ -1,13 +1,26 @@
-# Registers the local "Cenu Mednieks" tracker: salidzini.lv + pigu.lt run from your
-# home IP 3x/day (07:15 / 15:15 / 23:15) and write to the same state gist as GitHub
-# Actions (which covers amazon + hinnavaatlus). Requires: Python on PATH, .env filled.
+# Registers the local "Cenu Mednieks" tracker: salidzini.lv runs from your
+# home IP 3x/day (07:15 / 15:15 / 23:15) and writes to the same state gist as
+# GitHub Actions (which covers amazon + hinnavaatlus). Requires: .env filled.
+# (pigu.lt is paused - Cloudflare-flagged after heavy retries; re-add via /add.)
 #
 # Run from PowerShell:  powershell -ExecutionPolicy Bypass -File .\setup-local-task.ps1
+# ASCII only - Windows PowerShell 5.1 misparses BOM-less UTF-8 with non-ASCII chars.
 
 $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-$action = New-ScheduledTaskAction -Execute "python.exe" `
-    -Argument "scraper.py --stores salidzini.lv,pigu.lt --no-digest" `
+# Find python: PATH first, then the default per-user install locations
+$python = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+if (-not $python) {
+    foreach ($p in @("$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+                     "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe")) {
+        if (Test-Path $p) { $python = $p; break }
+    }
+}
+if (-not $python) { throw "python.exe not found - install Python 3.11+ or add it to PATH" }
+Write-Host "Using python: $python"
+
+$action = New-ScheduledTaskAction -Execute $python `
+    -Argument "scraper.py --stores salidzini.lv --no-digest" `
     -WorkingDirectory $repo
 
 $triggers = @(
@@ -21,7 +34,7 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
 
 Register-ScheduledTask -TaskName "Cenu Mednieks local tracker" `
     -Action $action -Trigger $triggers -Settings $settings -Force `
-    -Description "Price tracker: salidzini.lv + pigu.lt from home IP (GitHub Actions covers the rest)"
+    -Description "Price tracker: salidzini.lv from home IP (GitHub Actions covers the rest)"
 
 Write-Host ""
 Write-Host "Registered 'Cenu Mednieks local tracker' (07:15 / 15:15 / 23:15 daily)."

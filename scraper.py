@@ -155,6 +155,7 @@ def main() -> int:
     ok = failed = 0
     only_stores = {s.strip().lower() for s in args.stores.split(",")} if args.stores else set()
     skip_stores = {s.strip().lower() for s in args.skip_stores.split(",")} if args.skip_stores else set()
+    prev_host = None
     for entry in products["products"]:
         if args.only and args.only.lower() not in f"{entry['id']} {entry['name']}".lower():
             continue
@@ -163,6 +164,8 @@ def main() -> int:
             continue
         if skip_stores and host in skip_stores:
             continue
+        if host == prev_host:
+            time.sleep(15)  # same-store spacing — pigu.lt's Cloudflare throttles bursts
         err, ex = scrape_entry(entry)
         st = prices.setdefault(entry["url"], {})
 

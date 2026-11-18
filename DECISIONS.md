@@ -41,7 +41,7 @@ Live-researched 2026-11-18 by the selector-finder agents:
 |---|---|---|
 | **salidzini.lv** | all Latvian shops | ✅ preset + seeded. `/search?q=` URLs only (slug URLs → hCaptcha); AggregateOffer JSON-LD; no discount data exists on the site |
 | **hinnavaatlus.ee** | Estonian shops (incl. Baltic chains) | ✅ preset + seeded (JBL). Static HTML, `.offer-price`, verified min 89.65 € / 41 offers. LP923 not listed there |
-| **pigu.lt** | LT marketplace (group also runs 220.lv, ksenukai.lt, kaup24.ee) | ✅ preset + seeded. JSON-LD; throttles bursts (403 "Ar jūs ne robotas") — shared session + long backoff |
+| **pigu.lt** | LT marketplace (group also runs 220.lv, ksenukai.lt, kaup24.ee) | ⏸ paused 2026-11-18: Cloudflare flagged both GitHub's and the home IP after heavy retries; JSON-LD preset stays in stores.py — re-add via `/add` once it cools down |
 | kainos.lt | Lithuania | ❌ blocked (robot-check page) — Playwright tier only, add later via selector-finder |
 | Ceneo.pl | Poland | ❌ soft-blocked (JS shell) — Playwright tier |
 | idealo.de | Germany/EU | ❌ blocked (Akamai 403) — Playwright tier |
