@@ -43,9 +43,9 @@ def _extract_or_diag(entry: dict, html_text: str, adapter):
     """Extract, and log diagnostics when no price is found (helps tell block vs drift)."""
     ex = adapter.extract(html_text)
     if ex.price is None:
-        log.warning("diag %s: len=%d title=%r blocked=%r",
+        log.warning("diag %s: len=%d title=%r blocked=%r snippet=%r",
                     entry["id"], len(html_text), _page_title(html_text),
-                    fetch._looks_blocked(html_text))
+                    fetch._looks_blocked(html_text), html_text[:200])
     return ("price not found on page" if ex.price is None else None), ex
 
 

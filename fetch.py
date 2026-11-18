@@ -63,6 +63,8 @@ def fetch_requests(url: str) -> str:
 BOT_WALL_PHRASES = ("weiter shoppen", "kontynuuj zakupy", "continue shopping",
                     "kliknij poniższy przycisk", "klicke auf die schaltfläche")
 
+CAPTCHA_TITLES = ("robot check", "attention required", "just a moment", "access denied")
+
 
 def _dismiss_bot_wall(page) -> None:
     """Amazon serves a clickable bot-check interstitial — click through it if present."""
@@ -97,9 +99,12 @@ def fetch_playwright(url: str, wait_selector: str = "body") -> str:
                 ctx = browser.new_context(user_agent=USER_AGENT, locale="en-US",
                                           viewport={"width": 1366, "height": 900})
                 page = ctx.new_page()
-                page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                page.goto(url, wait_until="domcontentloaded", timeout=35_000)
+                title = (page.title() or "").lower()
+                if any(t in title for t in CAPTCHA_TITLES):
+                    raise FetchError(f"captcha page (title={page.title()!r})")
                 _dismiss_bot_wall(page)
-                page.wait_for_selector(wait_selector, timeout=30_000)
+                page.wait_for_selector(wait_selector, timeout=20_000)
                 html = page.content()
                 if _looks_blocked(html):
                     raise FetchError("anti-bot page after render", 403)

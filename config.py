@@ -22,7 +22,7 @@ DIGEST_RUN_HOUR_UTC = 21      # Q11: daily digest rides the 21:00 UTC run (= 23:
 HISTORY_MAX_POINTS = 500      # per-entry price history cap (~5 months at 3 runs/day)
 
 REQUEST_TIMEOUT = 20
-FETCH_RETRIES = 2
+FETCH_RETRIES = 1              # one retry max — long anti-bot backoffs waste the run budget
 
 STATE_DIR = "state-local"     # local backend directory (gitignored)
 SEED_PRODUCTS_FILE = "seed_products.json"

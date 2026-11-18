@@ -208,8 +208,9 @@ register(StoreAdapter(
 register(StoreAdapter(
     domain="pigu.lt",
     label="pigu.lt",
-    strategy="requests",
+    strategy="requests+playwright",   # CF 403s datacenter IPs on requests; browser may pass
     selectors={},  # JSON-LD only by design: CSS price markup breaks (sup-concatenation → '11539')
+    wait_selector="[class*='price'], .price",
     notes="Server-rendered; JSON-LD offers.price = REGULAR price (Pigu PLUS loyalty price sits "
           "in priceSpecification — not tracked). Bursts trigger a 403 'Ar jūs ne robotas' page: "
           "shared session + long backoff in fetch.py handle it. Same platform runs 220.lv / "

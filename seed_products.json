@@ -31,6 +31,12 @@
       "url": "https://www.amazon.de/dp/B0DXKMXPXW"
     },
     {
+      "id": "jbl-flip-7-amazon-pl",
+      "name": "JBL Flip 7",
+      "store_label": "amazon.pl",
+      "url": "https://www.amazon.pl/dp/B0DXKMXPXW"
+    },
+    {
       "id": "ugreen-lp923-pigu",
       "name": "UGREEN LP923",
       "store_label": "pigu.lt",
