@@ -40,6 +40,8 @@ Live-researched 2026-11-18 by the selector-finder agents:
 | Aggregator | Covers | Status |
 |---|---|---|
 | **salidzini.lv** | all Latvian shops | ✅ preset + seeded. `/search?q=` URLs only (slug URLs → hCaptcha); AggregateOffer JSON-LD; no discount data exists on the site |
+| **kurpirkt.lv** | all Latvian shops | ✅ preset + seeded (added 2026-11-18 evening). Cloudflare challenges plain requests everywhere (home IP incl.); Playwright passes from home ~8/9. Microdata `.precebloks` rows + query-token + accessory filters; JBL URL needs `&p1=50` floor. Home-IP runner |
+| **ceno.lv** | Latvian shops (780+) | ✅ preset + seeded (added 2026-11-18 evening). Requests + browser UA works 10/10 from home; datacenter IPs challenged even via Playwright → home-IP runner. Microdata `meta[itemprop=price]@content`; min of offers, never lowPrice |
 | **hinnavaatlus.ee** | Estonian shops (incl. Baltic chains) | ✅ preset + seeded (JBL). Static HTML, `.offer-price`, verified min 89.65 € / 41 offers. LP923 not listed there |
 | **pigu.lt** | LT marketplace (group also runs 220.lv, ksenukai.lt, kaup24.ee) | ⏸ paused 2026-11-18: Cloudflare flagged both GitHub's and the home IP after heavy retries; JSON-LD preset stays in stores.py — re-add via `/add` once it cools down |
 | kainos.lt | Lithuania | ❌ blocked (robot-check page) — Playwright tier only, add later via selector-finder |
