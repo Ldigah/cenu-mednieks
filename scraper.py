@@ -132,7 +132,14 @@ def main() -> int:
     if not args.local and TELEGRAM_BOT_TOKEN:
         chat_id = TELEGRAM_CHAT_ID or bot_state.get("chat_id")
         try:
+            me = telegram_io.get_me()
+            if me:
+                log.info("telegram bot: @%s (id %s)", me.get("username"), me.get("id"))
             updates = telegram_io.get_updates(int(bot_state.get("update_offset") or 0))
+            log.info("telegram: %d pending update(s)", len(updates))
+            if not updates and not chat_id:
+                log.warning("no /start found — send /start to @%s in Telegram, then re-run",
+                            (me or {}).get("username", "<unknown>"))
             for u in updates:
                 bot_state["update_offset"] = max(int(bot_state.get("update_offset") or 0),
                                                  u.get("update_id", 0))

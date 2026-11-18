@@ -40,6 +40,12 @@ def send_photo(chat_id, png: bytes, caption: str = ""):
         log.error("sendPhoto error: %s", e)
 
 
+def get_me() -> dict | None:
+    """Bot identity from getMe — used in logs so the owner can verify which bot is wired."""
+    data = _call("getMe")
+    return data.get("result") if data else None
+
+
 def get_updates(last_update_id: int) -> list[dict]:
     params = {"timeout": 0, "limit": 100, "allowed_updates": "message"}
     if last_update_id:
