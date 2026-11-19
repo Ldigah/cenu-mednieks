@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from config import DROP_ALERT_MIN_PCT
 from parse import Extraction
@@ -22,7 +22,7 @@ def diff_events(entry: dict, new: Extraction, old: dict | None) -> list[str]:
     Policy (QUESTIONS.md answers): drops ≥1%, new/deeper discounts, restocks.
     Price increases are recorded in state but never alerted.
     """
-    events = []
+    events: list[str] = []
     if old is None:
         return events  # first sighting: no alert
     label = esc(f"{entry['name']} · {entry.get('store_label', '')}")
@@ -59,7 +59,7 @@ def failure_alert(entry: dict, fails: int, reason: str) -> str:
 
 
 def digest_lines(products: list[dict], prices: dict) -> list[str]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     lines = [f"🛒 <b>Daily price summary</b> — {now:%Y-%m-%d} (all times UTC in history)"]
     for e in products:
         st = prices.get(e["url"], {})

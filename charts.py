@@ -5,6 +5,7 @@ import io
 from datetime import datetime
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -29,7 +30,7 @@ def chart_product(product_name: str, entries: list[dict], prices: dict) -> bytes
         hist = hist[-MAX_POINTS:]
         if not hist:
             continue
-        xs, ys = zip(*hist)
+        xs, ys = zip(*hist, strict=False)
         ax.plot(xs, ys, marker="o", markersize=3, linewidth=1.6,
                 label=e.get("store_label", e["url"]))
         plotted = True
@@ -54,7 +55,7 @@ def chart_all(products: list[dict], prices: dict, limit: int = 4) -> list[tuple[
     groups: dict[str, list[dict]] = {}
     for e in products:
         groups.setdefault(e["name"] or e["id"], []).append(e)
-    out = []
+    out: list[tuple[str, bytes]] = []
     for name, entries in groups.items():
         if len(out) >= limit:
             break

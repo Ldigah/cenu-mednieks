@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import alerts
@@ -22,15 +23,25 @@ import fetch
 import state as state_mod
 import stores
 import telegram_io
-from config import (DIGEST_RUN_HOUR_UTC, FAIL_ALERT_AFTER, F_BOT, F_PRICES, F_PRODUCTS,
-                    GIST_ID, GIST_TOKEN, HISTORY_MAX_POINTS,
-                    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+from config import (
+    DIGEST_RUN_HOUR_UTC,
+    F_BOT,
+    F_LOCK,
+    F_PRICES,
+    F_PRODUCTS,
+    FAIL_ALERT_AFTER,
+    GIST_ID,
+    GIST_TOKEN,
+    HISTORY_MAX_POINTS,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
+)
 
 log = logging.getLogger("tracker")
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _page_title(html_text: str) -> str:
@@ -81,6 +92,7 @@ def bootstrap_gist() -> int:
         F_PRODUCTS: state_mod.seed_products(),
         F_PRICES: {},
         F_BOT: {"update_offset": 0},
+        F_LOCK: {},
     }
     gist_id = state_mod.create_gist(GIST_TOKEN, files)
     msg = (f"🆕 State gist created: GIST_ID={gist_id}\n"
@@ -127,96 +139,124 @@ def main() -> int:
     bot_state = store.read(F_BOT) or {"update_offset": 0}
     first_run = not prices
 
-    # --- 1. Telegram commands (added products get scraped on this very run) ---
-    chat_id = None
-    if not args.local and TELEGRAM_BOT_TOKEN:
-        chat_id = TELEGRAM_CHAT_ID or bot_state.get("chat_id")
-        try:
-            me = telegram_io.get_me()
-            if me:
-                log.info("telegram bot: @%s (id %s)", me.get("username"), me.get("id"))
-            updates = telegram_io.get_updates(int(bot_state.get("update_offset") or 0))
-            log.info("telegram: %d pending update(s)", len(updates))
-            if not updates and not chat_id:
-                log.warning("no /start found — send /start to @%s in Telegram, then re-run",
-                            (me or {}).get("username", "<unknown>"))
-            for u in updates:
-                bot_state["update_offset"] = max(int(bot_state.get("update_offset") or 0),
-                                                 u.get("update_id", 0))
-                telegram_io.handle_update(u, products, prices, bot_state)
-        except Exception as e:  # noqa: BLE001 — commands must not kill the run
-            log.warning("command processing failed: %s", e)
-        if not chat_id:
-            chat_id = bot_state.get("chat_id") or TELEGRAM_CHAT_ID
+    # --- 0. State lock (two runners may overlap: scheduled + manual dispatch) ---
+    gist = isinstance(store, state_mod.GistStore)
+    runner_id = os.environ.get("RUNNER_ID") or f"run-{os.getpid()}-{int(time.time())}"
+    have_lock = False
+    if gist:
+        have_lock = store.acquire_lock(runner_id)
+        if not have_lock:
+            log.warning("state lock held by another run — waiting 20 s, then proceeding; "
+                        "merge-writes keep this safe")
+            time.sleep(20)
+            have_lock = store.acquire_lock(runner_id)
 
-    send = bool(chat_id) and bool(TELEGRAM_BOT_TOKEN) and not args.local
+    try:
+        # --- 1. Telegram commands (added products get scraped on this very run) ---
+        chat_id = None
+        if not args.local and TELEGRAM_BOT_TOKEN:
+            chat_id = TELEGRAM_CHAT_ID or bot_state.get("chat_id")
+            try:
+                me = telegram_io.get_me()
+                if me:
+                    log.info("telegram bot: @%s (id %s)", me.get("username"), me.get("id"))
+                updates = telegram_io.get_updates(int(bot_state.get("update_offset") or 0))
+                log.info("telegram: %d pending update(s)", len(updates))
+                if not updates and not chat_id:
+                    log.warning("no /start found — send /start to @%s in Telegram, then re-run",
+                                (me or {}).get("username", "<unknown>"))
+                for u in updates:
+                    bot_state["update_offset"] = max(int(bot_state.get("update_offset") or 0),
+                                                     u.get("update_id", 0))
+                    telegram_io.handle_update(u, products, prices, bot_state)
+            except Exception as e:  # noqa: BLE001 — commands must not kill the run
+                log.warning("command processing failed: %s", e)
+            if not chat_id:
+                chat_id = bot_state.get("chat_id") or TELEGRAM_CHAT_ID
 
-    # --- 2. Scrape ---
-    ok = failed = 0
-    only_stores = {s.strip().lower() for s in args.stores.split(",")} if args.stores else set()
-    skip_stores = {s.strip().lower() for s in args.skip_stores.split(",")} if args.skip_stores else set()
-    prev_host = None
-    for entry in products["products"]:
-        if args.only and args.only.lower() not in f"{entry['id']} {entry['name']}".lower():
-            continue
-        host = (urlparse(entry["url"]).hostname or "").lower().removeprefix("www.")
-        if only_stores and host not in only_stores:
-            continue
-        if skip_stores and host in skip_stores:
-            continue
-        if host == prev_host:
-            time.sleep(15)  # same-store spacing — pigu.lt's Cloudflare throttles bursts
-        err, ex = scrape_entry(entry)
-        st = prices.setdefault(entry["url"], {})
+        send = bool(chat_id) and bool(TELEGRAM_BOT_TOKEN) and not args.local
 
-        if err is not None or ex is None or ex.price is None:
-            st["fails"] = int(st.get("fails") or 0) + 1
-            failed += 1
-            log.warning("FAIL %s (×%d): %s", entry["id"], st["fails"], err)
-            if send and not args.health and st["fails"] == FAIL_ALERT_AFTER:
-                telegram_io.send_message(chat_id, alerts.failure_alert(entry, st["fails"], err or "?"))
-            continue
+        # --- 2. Scrape ---
+        ok = failed = 0
+        only_stores = {s.strip().lower() for s in args.stores.split(",")} if args.stores else set()
+        skip_stores = {s.strip().lower() for s in args.skip_stores.split(",")} if args.skip_stores else set()
+        prev_host = None
+        for entry in products["products"]:
+            if args.only and args.only.lower() not in f"{entry['id']} {entry['name']}".lower():
+                continue
+            host = (urlparse(entry["url"]).hostname or "").lower().removeprefix("www.")
+            if only_stores and host not in only_stores:
+                continue
+            if skip_stores and host in skip_stores:
+                continue
+            if host == prev_host:
+                time.sleep(15)  # same-store spacing — pigu.lt's Cloudflare throttles bursts
+            err, ex = scrape_entry(entry)
+            st = prices.setdefault(entry["url"], {})
 
-        st["fails"] = 0
-        prev = {"price": st.get("price"), "old_price": st.get("old_price"),
-                "in_stock": st.get("in_stock")} if st.get("price") is not None else None
-        if not args.health and send:
-            events = alerts.diff_events(entry, ex, prev)
-            if events:
-                telegram_io.send_message(chat_id, "\n\n".join(events))
+            if err is not None or ex is None or ex.price is None:
+                st["fails"] = int(st.get("fails") or 0) + 1
+                failed += 1
+                log.warning("FAIL %s (×%d): %s", entry["id"], st["fails"], err)
+                # alert at 3 consecutive fails, then re-nag every 5th so a dead entry
+                # never goes permanently quiet
+                nag = (st["fails"] == FAIL_ALERT_AFTER
+                       or (st["fails"] > FAIL_ALERT_AFTER
+                           and (st["fails"] - FAIL_ALERT_AFTER) % 5 == 0))
+                if send and not args.health and nag:
+                    telegram_io.send_message(chat_id, alerts.failure_alert(entry, st["fails"], err or "?"))
+                continue
 
-        st.update(price=ex.price, old_price=ex.old_price, in_stock=ex.in_stock,
-                  shop=ex.shop, offers=ex.offers, display=ex.display,
-                  currency=ex.currency, converted=ex.converted, last_checked=now_iso())
-        st.setdefault("first_seen", now_iso())
-        hist = st.setdefault("history", [])
-        hist.append({"t": now_iso(), "p": ex.price})
-        if len(hist) > HISTORY_MAX_POINTS:
-            del hist[: len(hist) - HISTORY_MAX_POINTS]
-        ok += 1
-        log.info("OK   %s: %s (reg. %s) stock=%s", entry["id"], ex.price, ex.old_price, ex.in_stock)
-        time.sleep(5)  # politeness gap — pigu.lt throttles bursts; gentle on everyone
+            st["fails"] = 0
+            prev = {"price": st.get("price"), "old_price": st.get("old_price"),
+                    "in_stock": st.get("in_stock")} if st.get("price") is not None else None
+            if not args.health and send:
+                events = alerts.diff_events(entry, ex, prev)
+                if events:
+                    telegram_io.send_message(chat_id, "\n\n".join(events))
 
-    # --- 3. Reports ---
-    hour = datetime.now(timezone.utc).hour
-    want_digest = (args.digest or (hour == DIGEST_RUN_HOUR_UTC)) and not args.no_digest
-    if send and not args.health:
-        if first_run:
-            telegram_io.send_message(
-                chat_id, f"✅ <b>Cenu Mednieks initialized</b> — tracking "
-                         f"{len(products['products'])} entries ({ok} ok, {failed} failed).")
-        if want_digest and products["products"]:
-            telegram_io.send_message(chat_id, "\n".join(alerts.digest_lines(products["products"], prices)))
-    if args.health:
-        summary = alerts.health_summary(products["products"], prices)
-        print(summary)
-        if send and "⚠️" in summary:
-            telegram_io.send_message(chat_id, summary)
+            st.update(price=ex.price, old_price=ex.old_price, in_stock=ex.in_stock,
+                      shop=ex.shop, offers=ex.offers, display=ex.display,
+                      currency=ex.currency, converted=ex.converted, last_checked=now_iso())
+            st.setdefault("first_seen", now_iso())
+            hist = st.setdefault("history", [])
+            hist.append({"t": now_iso(), "p": ex.price})
+            if len(hist) > HISTORY_MAX_POINTS:
+                del hist[: len(hist) - HISTORY_MAX_POINTS]
+            ok += 1
+            log.info("OK   %s: %s (reg. %s) stock=%s", entry["id"], ex.price, ex.old_price, ex.in_stock)
+            time.sleep(5)  # politeness gap — pigu.lt throttles bursts; gentle on everyone
 
-    # --- 4. Persist ---
-    store.write(F_PRODUCTS, products)
-    store.write(F_PRICES, prices)
-    store.write(F_BOT, bot_state)
+        # --- 3. Reports ---
+        hour = datetime.now(UTC).hour
+        want_digest = (args.digest or (hour == DIGEST_RUN_HOUR_UTC)) and not args.no_digest
+        if send and not args.health:
+            if first_run:
+                telegram_io.send_message(
+                    chat_id, f"✅ <b>Cenu Mednieks initialized</b> — tracking "
+                             f"{len(products['products'])} entries ({ok} ok, {failed} failed).")
+            if want_digest and products["products"]:
+                telegram_io.send_message(
+                    chat_id, "\n".join(alerts.digest_lines(products["products"], prices)))
+        if args.health:
+            summary = alerts.health_summary(products["products"], prices)
+            print(summary)
+            if send and "⚠️" in summary:
+                telegram_io.send_message(chat_id, summary)
+
+        # --- 4. Persist (merged over anything another runner wrote meanwhile) ---
+        if gist:
+            store.merge_write(F_PRODUCTS, products, state_mod.merge_products)
+            store.merge_write(F_PRICES, prices, state_mod.merge_prices)
+            store.merge_write(F_BOT, bot_state, state_mod.merge_bot_state)
+        else:
+            store.write(F_PRODUCTS, products)
+            store.write(F_PRICES, prices)
+            store.write(F_BOT, bot_state)
+    finally:
+        if gist and have_lock:
+            store.release_lock(runner_id)
+
     log.info("done: %d ok, %d failed", ok, failed)
     return 0
 

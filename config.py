@@ -41,6 +41,7 @@ SEED_PRODUCTS_FILE = "seed_products.json"
 F_PRODUCTS = "products.json"
 F_PRICES = "prices.json"
 F_BOT = "bot_state.json"
+F_LOCK = "lock.json"          # runner lock: {"runner": id, "expires": iso} — see state.py
 
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")

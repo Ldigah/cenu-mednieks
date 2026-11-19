@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import stores
@@ -44,7 +44,7 @@ def make_entry(raw_url: str, name: str = ""):
         "name": (name or "").strip(),
         "store_label": host,
         "url": url,
-        "added": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "added": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     note = ""
     if is_auto:

@@ -58,7 +58,7 @@ CENO_HTML = """
 def test_kurpirkt_filters_and_min():
     adapter = stores.adapter_for("https://www.kurpirkt.lv/cena.php?q=ugreen+lp923")
     ex = adapter.extract(KURPIKT_HTML)
-    assert ex.price == 9.95                     # not 4.50 (battery) nor 23.99 (dock, term filter)
+    assert ex is not None and ex.price == 9.95                     # not 4.50 (battery) nor 23.99 (dock)
     assert ex.shop == "ITworkshop.lv"
     assert ex.in_stock is True                  # "Noliktavā: 99+"
 
@@ -66,14 +66,14 @@ def test_kurpirkt_filters_and_min():
 def test_kurpirkt_out_of_stock_token():
     html = KURPIKT_HTML.replace("Noliktavā: 99+", "Nav").replace("9.95 €", "3.00 €")
     ex = stores.adapter_for("https://www.kurpirkt.lv/cena.php?q=x").extract(html)
-    assert ex.price == 3.00
+    assert ex is not None and ex.price == 3.00
     assert ex.in_stock is False                 # "Nav"
 
 
 def test_ceno_microdata_min():
     adapter = stores.adapter_for("https://ceno.lv/search?q=UGREEN+LP923")
     ex = adapter.extract(CENO_HTML)
-    assert ex.price == 9.95                     # not 19.85 (battery excluded)
+    assert ex is not None and ex.price == 9.95                     # not 19.85 (battery excluded)
     assert ex.shop == "itworkshop.lv"
     assert ex.in_stock is True
     assert ex.offers == 14                      # global offerCount meta

@@ -1,14 +1,26 @@
-"""State storage: GitHub Gist backend (CI, nothing committed to the repo) or local dir (dev)."""
+"""State storage: GitHub Gist backend (CI, nothing committed to the repo) or local dir (dev).
+
+Two runners may overlap on the same gist (scheduled + manual dispatch), so every write
+after scraping goes through merge_write: re-read fresh, merge ours over it, write.
+Merges are pure functions (merge_prices / merge_products / merge_bot_state) so the
+last-writer-wins semantics are unit-testable. A best-effort lock file (lock.json)
+reduces duplicated scraping while merges make overlap harmless.
+"""
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import requests
 
-from config import F_BOT, F_PRICES, F_PRODUCTS, GIST_ID, GIST_TOKEN, SEED_PRODUCTS_FILE, STATE_DIR
+from config import F_LOCK, GIST_ID, GIST_TOKEN, SEED_PRODUCTS_FILE, STATE_DIR
 
 GIST_API = "https://api.github.com/gists"
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class GistStore:
@@ -25,7 +37,7 @@ class GistStore:
         return {"Authorization": f"token {self.token}",
                 "Accept": "application/vnd.github+json"}
 
-    def load(self) -> "GistStore":
+    def load(self) -> GistStore:
         r = requests.get(f"{GIST_API}/{self.gist_id}", headers=self._headers(), timeout=20)
         r.raise_for_status()
         self._files = r.json().get("files", {})
@@ -50,6 +62,39 @@ class GistStore:
                            json={"files": {filename: {"content": content}}}, timeout=20)
         r.raise_for_status()
         self._files[filename] = {"content": content, "truncated": False}
+
+    def merge_write(self, filename: str, data: dict, merge_fn) -> None:
+        """Read the file fresh, merge ours over it, then write.
+
+        This closes the read-modify-write gap between the load at run start and the
+        write at run end (another runner may have scraped in between).
+        """
+        try:
+            fresh = self.read(filename)
+        except requests.RequestException:
+            fresh = None
+        merged = merge_fn(fresh, data) if isinstance(fresh, dict) and isinstance(data, dict) \
+            else data
+        self.write(filename, merged)
+
+    def acquire_lock(self, runner_id: str, ttl_minutes: int = 10) -> bool:
+        """Best-effort advisory lock (the gist API has no compare-and-swap)."""
+        now = _now_iso()
+        if not lock_is_free(self.read(F_LOCK), runner_id, now):
+            return False
+        self.write(F_LOCK, {"runner": runner_id,
+                            "expires": (datetime.now(UTC)
+                                        + timedelta(minutes=ttl_minutes))
+                            .isoformat(timespec="seconds")})
+        return True
+
+    def release_lock(self, runner_id: str) -> None:
+        try:
+            lock = self.read(F_LOCK) or {}
+            if lock.get("runner") == runner_id:
+                self.write(F_LOCK, {})
+        except requests.RequestException:
+            pass  # a stale lock expires via its TTL — nothing to crash a run over
 
 
 class LocalStore:
@@ -101,3 +146,64 @@ def default_store(local: bool):
     if local:
         return LocalStore().load()
     return GistStore(GIST_ID, GIST_TOKEN).load()
+
+
+# ---------------------------------------------------------------------------
+# Merges (pure — unit-tested in tests/test_state.py)
+# ---------------------------------------------------------------------------
+
+def lock_is_free(lock: dict | None, runner_id: str, now_iso_ts: str) -> bool:
+    """Free when unheld, held by us, or expired (missing expires counts as expired)."""
+    lock = lock or {}
+    holder = lock.get("runner")
+    if not holder or holder == runner_id:
+        return True
+    return (lock.get("expires") or "") <= now_iso_ts
+
+
+def _merge_hist(a: list | None, b: list | None) -> list:
+    """Union of history points by timestamp; later argument wins on duplicates."""
+    pts: dict = {}
+    for pt in list(a or []) + list(b or []):
+        if isinstance(pt, dict) and pt.get("t"):
+            pts[pt["t"]] = pt.get("p")
+    return [{"t": t, "p": pts[t]} for t in sorted(pts)]
+
+
+def merge_prices(theirs: dict | None, ours: dict | None) -> dict:
+    """Per-URL: the fresher record's scalars win; histories from both are unioned."""
+    theirs = theirs or {}
+    ours = ours or {}
+    out: dict = {}
+    for url in set(theirs) | set(ours):
+        t = theirs.get(url) or {}
+        o = ours.get(url) or {}
+        if not t:
+            out[url] = o
+        elif not o:
+            out[url] = t
+        elif (o.get("last_checked") or "") >= (t.get("last_checked") or ""):
+            out[url] = dict(o, history=_merge_hist(o.get("history"), t.get("history")))
+        else:
+            out[url] = dict(t, history=_merge_hist(o.get("history"), t.get("history")))
+    return out
+
+
+def merge_products(theirs: dict | None, ours: dict) -> dict:
+    """Union of tracking entries; entries updated by this run win."""
+    merged: dict = {}
+    for e in (theirs or {}).get("products", []):
+        merged[e.get("url")] = e
+    for e in ours.get("products", []):
+        merged[e.get("url")] = e
+    return {"products": list(merged.values())}
+
+
+def merge_bot_state(theirs: dict | None, ours: dict) -> dict:
+    """Offset takes the max (never re-process); chat adoption from ours."""
+    out = dict(theirs or {})
+    out["update_offset"] = max(int((theirs or {}).get("update_offset") or 0),
+                               int(ours.get("update_offset") or 0))
+    if ours.get("chat_id"):
+        out["chat_id"] = ours["chat_id"]
+    return out

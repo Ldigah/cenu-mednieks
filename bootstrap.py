@@ -5,8 +5,8 @@ If you skip this, the first CI run creates the gist automatically and prints GIS
 """
 import sys
 
-from config import F_BOT, F_PRICES, F_PRODUCTS, GIST_TOKEN
 import state
+from config import F_BOT, F_PRICES, F_PRODUCTS, GIST_TOKEN
 
 
 def main() -> int:

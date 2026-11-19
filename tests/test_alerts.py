@@ -1,5 +1,5 @@
-from parse import Extraction
 from alerts import diff_events
+from parse import Extraction
 
 ENTRY = {"id": "x", "name": "JBL Flip 7", "store_label": "Amazon.de",
          "url": "https://example.org/p"}

@@ -42,7 +42,7 @@ def _looks_blocked(html: str) -> bool:
 
 def fetch_requests(url: str) -> str:
     """Plain HTTP GET with retries; raises FetchError on failure/block."""
-    last = None
+    last: FetchError | None = None
     for attempt in range(FETCH_RETRIES + 1):
         try:
             r = _session.get(url, headers={**BASE_HEADERS, "Accept-Language": _lang_for(url)},
@@ -57,6 +57,7 @@ def fetch_requests(url: str) -> str:
         last = FetchError(f"HTTP {r.status_code}{blocked}", r.status_code)
         # Cloudflare throttling (pigu.lt) needs a long cooldown, not 2 s
         time.sleep(45 if r.status_code in (403, 429) else 2 * (attempt + 1))
+    assert last is not None  # at least one attempt always assigns it
     raise last
 
 
@@ -110,7 +111,7 @@ def fetch_playwright(url: str, wait_selector: str = "body") -> str:
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
             try:
                 last_err = None
-                for attempt in (1, 2):   # Amazon blocking is probabilistic — a retry pays off
+                for _attempt in (1, 2):   # Amazon blocking is probabilistic — a retry pays off
                     ctx = browser.new_context(user_agent=USER_AGENT, locale="en-US",
                                               viewport={"width": 1366, "height": 900})
                     try:
@@ -135,6 +136,7 @@ def fetch_playwright(url: str, wait_selector: str = "body") -> str:
                         last_err = FetchError(f"playwright {type(e).__name__}: {e}")
                     finally:
                         ctx.close()
+                assert last_err is not None  # every attempt assigns it
                 raise last_err
             finally:
                 browser.close()

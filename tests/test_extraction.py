@@ -82,7 +82,7 @@ SALIDZINI_CSS = """
 def test_amazon_css_extraction():
     adapter = stores.adapter_for("https://www.amazon.de/dp/B0TEST")
     ex = adapter.extract(AMAZON_HTML)
-    assert ex.price == 129.99
+    assert ex is not None and ex.price == 129.99
     assert ex.old_price == 159.00
     assert ex.in_stock is True
     assert ex.display == "129,99\u00a0€"
@@ -92,7 +92,7 @@ def test_amazon_pln_converted_to_eur(monkeypatch):
     monkeypatch.setattr(fx, "rate_to_eur", lambda c: 0.25)
     adapter = stores.adapter_for("https://www.amazon.pl/dp/B0TEST")
     ex = adapter.extract(AMAZON_PLN_HTML)
-    assert ex.price == 99.75            # 399.00 * 0.25
+    assert ex is not None and ex.price == 99.75            # 399.00 * 0.25
     assert ex.converted is True
     assert ex.display == "399,00\u00a0zł"
     assert ex.in_stock is False         # "Chwilowo niedostępny" must not match "dostępny"
@@ -101,14 +101,14 @@ def test_amazon_pln_converted_to_eur(monkeypatch):
 def test_amazon_price_regex_fallback():
     adapter = stores.adapter_for("https://www.amazon.de/dp/B0TEST")
     ex = adapter.extract(AMAZON_REGEX_ONLY)
-    assert ex.price == 149.95
+    assert ex is not None and ex.price == 149.95
     assert ex.source == "regex"
 
 
 def test_jsonld_wins_over_css():
     adapter = stores.adapter_for("https://www.amazon.pl/dp/B0TEST")
     ex = adapter.extract(JSONLD_HTML)
-    assert ex.source == "jsonld"
+    assert ex is not None and ex.source == "jsonld"
     assert ex.price == 89.99
     assert ex.in_stock is True
     assert ex.price != 999.00  # CSS price ignored when JSON-LD exists
@@ -123,7 +123,7 @@ def test_jsonld_multiple_offers_cheapest():
 def test_salidzini_aggregate_filters_accessories():
     adapter = stores.adapter_for("https://www.salidzini.lv/search?q=JBL+Flip+7")
     ex = adapter.extract(SALIDZINI_HTML)
-    assert ex.price == 73.0            # not 19.85 (battery) and not lowPrice 19.85
+    assert ex is not None and ex.price == 73.0            # not 19.85 (battery) and not lowPrice 19.85
     assert ex.shop == "24.lv"
     assert ex.offers == 2              # 2 real speaker offers after the filter
     assert ex.in_stock is True
@@ -133,7 +133,7 @@ def test_salidzini_aggregate_filters_accessories():
 def test_salidzini_css_fallback():
     adapter = stores.adapter_for("https://www.salidzini.lv/search?q=x")
     ex = adapter.extract(SALIDZINI_CSS)
-    assert ex.price == 12.45
+    assert ex is not None and ex.price == 12.45
     assert ex.shop == "eltek.lv"
 
 
@@ -158,5 +158,5 @@ HINNAVAATLUS_HTML = """
 def test_hinnavaatlus_first_offer_is_min():
     adapter = stores.adapter_for("https://www.hinnavaatlus.ee/5681989/jbl-flip-7-black/")
     ex = adapter.extract(HINNAVAATLUS_HTML)
-    assert ex.price == 89.65
+    assert ex is not None and ex.price == 89.65
     assert ex.currency == "EUR"

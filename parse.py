@@ -102,6 +102,7 @@ def _is_offer(node: dict) -> bool:
 def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
     """Cheapest price from schema.org JSON-LD — Product→offers or standalone Offer blocks."""
     best = None
+    best_price: float | None = None
     for tag in soup.find_all("script", type="application/ld+json"):
         raw = tag.string or tag.get_text()
         if not raw:
@@ -129,8 +130,9 @@ def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
                     continue
                 ex = Extraction(price=p, currency=off.get("priceCurrency") or "EUR",
                                 in_stock=availability_flag(off.get("availability")))
-                if best is None or ex.price < best.price:
+                if best_price is None or p < best_price:
                     best = ex
+                    best_price = p
     if best:
         best.source = "jsonld"
     return best
