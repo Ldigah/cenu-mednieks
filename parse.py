@@ -148,7 +148,16 @@ def css_extraction(soup: BeautifulSoup, selectors: dict) -> Extraction:
         el = soup.select_one(sel)
         return el.get_text(" ", strip=True) if el else None
 
-    price_txt = txt(selectors.get("price"))
+    # Price: try every match in document order — some stores render the "canonical"
+    # price span empty (Amazon's corePriceDisplay) and fill a later one.
+    price_txt = None
+    sel = selectors.get("price")
+    if sel:
+        for el in soup.select(sel):
+            candidate = el.get_text(" ", strip=True)
+            if parse_price(candidate) is not None:
+                price_txt = candidate
+                break
     ex.price = parse_price(price_txt)
     if ex.price is not None:
         ex.display = price_txt

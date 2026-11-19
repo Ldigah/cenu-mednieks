@@ -15,6 +15,7 @@ BLOCK_MARKERS = (
     "sorry, we just need to make sure you're not a robot",
     "ar jūs ne robotas",   # pigu.lt throttling page
     "hcaptcha.com",        # salidzini.lv slug URLs
+    "challenges.cloudflare.com/turnstile",   # salidzini.lv / kurpirkt.lv walls
 )
 
 # Shared session: cookie reuse helps Cloudflare-fronted shops (pigu.lt).
@@ -69,24 +70,32 @@ CAPTCHA_TITLES = ("robot check", "attention required", "just a moment", "access 
 
 
 def fetch_scraperapi(url: str, api_key: str, render: bool = False) -> str:
-    """Fetch via ScraperAPI (residential proxy pool) — for Cloudflare-guarded
+    """Fetch via ScraperAPI (rotating proxy pool) — for Cloudflare-guarded
     aggregators that challenge datacenter IPs (CI).
 
-    Credit cost: 1 credit plain, 10 with render=true — no retries here, failures
-    are cheaper than burning credits. Raises FetchError on any non-200.
+    Credit cost: 1 credit plain, 10 with render=true. Their API queues slow
+    sites, so plain fetches get 60 s (vs 20 s direct) and rendered 90 s. Only
+    network timeouts retry once — a timed-out call is unlikely to have consumed
+    a credit; HTTP/block responses raise immediately.
     """
     params: dict = {"api_key": api_key, "url": url}
     if render:
         params["render"] = "true"
-    try:
-        r = _session.get("https://api.scraperapi.com/", params=params,
-                         timeout=90 if render else REQUEST_TIMEOUT)
-    except requests.RequestException as e:
-        raise FetchError(f"scraperapi network error: {e}") from e
-    if r.status_code == 200 and not _looks_blocked(r.text):
-        return r.text
-    blocked = " (anti-bot page)" if _looks_blocked(r.text) else ""
-    raise FetchError(f"scraperapi HTTP {r.status_code}{blocked}", r.status_code)
+    timeout = 90 if render else 60
+    last: FetchError | None = None
+    for _attempt in range(2):
+        try:
+            r = _session.get("https://api.scraperapi.com/", params=params, timeout=timeout)
+        except requests.RequestException as e:
+            last = FetchError(f"scraperapi network error: {e}")
+            time.sleep(5)
+            continue
+        if r.status_code == 200 and not _looks_blocked(r.text):
+            return r.text
+        blocked = " (anti-bot page)" if _looks_blocked(r.text) else ""
+        raise FetchError(f"scraperapi HTTP {r.status_code}{blocked}", r.status_code)
+    assert last is not None  # both attempts timed out
+    raise last
 
 
 def _wait_captcha_clear(page, timeout_s: int = 10) -> bool:

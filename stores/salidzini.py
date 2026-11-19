@@ -68,8 +68,10 @@ class SalidziniAdapter(StoreAdapter):
 SALIDZINI = SalidziniAdapter(
     domain="salidzini.lv",
     label="salidzini.lv (all LV shops)",
-    strategy="requests+playwright",   # /search works via requests usually; Playwright if Cloudflare bites
-    dc_blocked=True,                  # GitHub runners get challenged → ScraperAPI (1 credit, plain)
+    strategy="requests+playwright",   # /search works via plain requests from residential IPs
+    dc_blocked=True,                  # GitHub/ScraperAPI plain fetches hit a Turnstile wall…
+    render_api=True,                  # …so remote fetches render in a real browser (10 credits)
+    daily_only=True,                  # rendered fetches cost 10 credits — poll once per day
     selectors={  # CSS fallback only — JSON-LD AggregateOffer above is primary
         "price": "article a.product > data",
         "old_price": None,
@@ -78,5 +80,7 @@ SALIDZINI = SalidziniAdapter(
     },
     wait_selector="article",
     notes="Use /search?q= URLs only (slug URLs → hCaptcha). Prices dot-decimal in "
-          "JSON-LD, '73,00 €' in HTML. No discount data exists on this site.",
+          "JSON-LD, '73,00 €' in HTML. No discount data exists on this site. Verified "
+          "2026-11-19: plain fetches (even via ScraperAPI) return a Turnstile page — "
+          "render=true is required from datacenter egress.",
 )

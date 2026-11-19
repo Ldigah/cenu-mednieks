@@ -160,3 +160,14 @@ def test_hinnavaatlus_first_offer_is_min():
     ex = adapter.extract(HINNAVAATLUS_HTML)
     assert ex is not None and ex.price == 89.65
     assert ex.currency == "EUR"
+
+
+def test_css_price_skips_empty_matches():
+    # Amazon's corePriceDisplay offscreen span exists but is empty in raw HTML
+    # (price injected client-side); the next matching span carries the real price.
+    html = ('<div class="wrap"><span class="p"></span>'
+            '<span class="p">12,30\u00a0€</span></div>')
+    soup = BeautifulSoup(html, "html.parser")
+    ex = parse.css_extraction(soup, {"price": ".p"})
+    assert ex.price == 12.30
+    assert ex.display is not None and "12,30" in ex.display

@@ -13,7 +13,8 @@ AMAZON_DE = StoreAdapter(
                   "#price_inside_buybox, .buyingPrice .a-offscreen, .a-price .a-offscreen"),
         "old_price": ".basisPrice .a-offscreen, span.a-price.a-text-price .a-offscreen",
         "availability": "#availability",
-        "price_regex": r'"priceAmount"\s*:\s*([0-9]+[.,][0-9]+|[0-9]+)',
+        # decimals only — Amazon pages also carry cents-int priceAmount blobs (4947 = 49,47 €)
+        "price_regex": r'"priceAmount"\s*:\s*([0-9]+\.[0-9]{2})',
     },
     wait_selector="#productTitle",
     notes="Buybox price; captcha on non-browser fetches → always Playwright. "
@@ -30,7 +31,8 @@ AMAZON_PL = StoreAdapter(
                   "#price_inside_buybox, .buyingPrice .a-offscreen, .a-price .a-offscreen"),
         "old_price": ".basisPrice .a-offscreen, span.a-price.a-text-price .a-offscreen",
         "availability": "#availability",
-        "price_regex": r'"priceAmount"\s*:\s*([0-9]+[.,][0-9]+|[0-9]+)',
+        # decimals only — Amazon pages also carry cents-int priceAmount blobs (4947 = 49,47 €)
+        "price_regex": r'"priceAmount"\s*:\s*([0-9]+\.[0-9]{2})',
     },
     wait_selector="#productTitle",
     notes="Prices in PLN (zł) → auto-converted to EUR via ECB rate. "

@@ -62,8 +62,8 @@ them through [ScraperAPI](https://www.scraperapi.com)'s free plan (1,000 credits
 no credit card — plain fetch = 1 credit, JS-rendered = 10):
 
 1. Sign up → copy the API key → add it as the `SCRAPERAPI_KEY` secret.
-2. That's it. The budget: salidzini + ceno ~60 credits/day plain, kurpirkt 10 credits
-   once/day (rendered) → **≈480 credits/month**, comfortably inside the free plan.
+2. That's it. The budget (verified 2026-11-19): salidzini + kurpirkt rendered once/day
+   (10 credits each), ceno plain 3×/day (1 credit each) → **≈690 of 1,000 credits/month**.
 3. Without the key the bot still works — those three stores simply fall back to the
    direct requests→Playwright ladder (fine from residential IPs, e.g. local dry runs).
 

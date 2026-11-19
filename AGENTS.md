@@ -67,8 +67,10 @@ snapshot. Nothing is committed to the repo.
   remove the fallback.
 - `getUpdates` must be called with `offset = last_update_id + 1` or commands
   re-process forever.
-- kurpirkt.lv is `daily_only` + `render_api`: once/day through ScraperAPI (10 credits);
-  don't raise its cadence or the free-credit budget breaks (≈480/1,000 per month total).
+- salidzini.lv and kurpirkt.lv are `daily_only` + `render_api` (plain fetches hit a
+  Turnstile wall from datacenter egress — verified 2026-11-19): once/day rendered through
+  ScraperAPI at 10 credits each; ceno.lv stays plain 3×/day. Don't raise their cadence or
+  the free-credit budget breaks (≈690/1,000 per month total).
 - `publish.py` (not `site.py`) — `site` is Python's stdlib and shadows any local
   module of that name.
 - The Worker's read-only answers are approximations of the Python bot's replies; charts
