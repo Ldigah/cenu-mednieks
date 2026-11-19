@@ -59,7 +59,7 @@ jobs:
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
-        run: python site.py --out site
+        run: python publish.py --out site
 
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'repository_dispatch'

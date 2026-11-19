@@ -249,8 +249,9 @@ def main() -> int:
                     if len(hist) > HISTORY_MAX_POINTS:
                         del hist[: len(hist) - HISTORY_MAX_POINTS]
                     ok += 1
-                    log.info("OK   %s · %s: %s (reg. %s) stock=%s",
-                             product["id"], offer["store"], ex.price, ex.old_price, ex.in_stock)
+                    log.info("OK   %s · %s: %s (reg. %s) stock=%s [%s]",
+                             product["id"], offer["store"], ex.price, ex.old_price,
+                             ex.in_stock, ex.display)
                     results.append((offer, ex))
                 prev_host = host
                 time.sleep(5)  # politeness gap — gentle on everyone

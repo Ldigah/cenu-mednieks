@@ -26,11 +26,21 @@ class StoreAdapter:
     dc_blocked: bool = False            # Cloudflare-challenges datacenter IPs → needs ScraperAPI in CI
     render_api: bool = False            # remote API fetches need JS rendering (credits ×10)
     daily_only: bool = False            # expensive fetches: poll once per day, not every run
+    require_decimal_price: bool = False  # reject separator-less CSS prices (Amazon junk spans)
 
     def extract(self, html: str) -> parse.Extraction | None:
         soup = BeautifulSoup(html, "html.parser")
         ex = parse.jsonld_extraction(soup)
         css = parse.css_extraction(soup, self.selectors)
+
+        # Amazon-style sanity guard: legit buybox text always carries a decimal
+        # separator ("89,47 €"); separator-less matches come from junk spans
+        # (no-buybox scalper listings, recommendation carousels) — drop them and
+        # let the decimals-only price_regex decide.
+        if (self.require_decimal_price and css.price is not None and css.display
+                and not any(sep in css.display for sep in (",", "."))):
+            css.price = None
+            css.display = None
 
         if css.price is not None and (ex is None or ex.price is None):
             ex = css

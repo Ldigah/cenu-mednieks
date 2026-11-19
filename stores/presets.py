@@ -7,6 +7,7 @@ AMAZON_DE = StoreAdapter(
     domain="amazon.de",
     label="Amazon.de",
     strategy="playwright",   # plain requests = captcha even off datacenter IPs
+    require_decimal_price=True,   # no-buybox/scalper spans show separator-less junk
     selectors={
         "price": ("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen, "
                   "#corePriceDisplay_mobile_feature_div .a-price .a-offscreen, "
@@ -27,6 +28,7 @@ AMAZON_PL = StoreAdapter(
     domain="amazon.pl",
     label="Amazon.pl",
     strategy="playwright",
+    require_decimal_price=True,
     selectors={
         "price": ("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen, "
                   "#corePriceDisplay_mobile_feature_div .a-price .a-offscreen, "

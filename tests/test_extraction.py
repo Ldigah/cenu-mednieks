@@ -171,3 +171,14 @@ def test_css_price_skips_empty_matches():
     ex = parse.css_extraction(soup, {"price": ".p"})
     assert ex.price == 12.30
     assert ex.display is not None and "12,30" in ex.display
+
+
+def test_amazon_decimal_guard_rejects_separatorless_junk():
+    # CI reality: no-buybox pages surface scalper/carousel spans like "4 947" —
+    # the guard must reject them and let the decimals-only price_regex speak.
+    html = ('<div id="corePriceDisplay_desktop_feature_div"><span class="a-price">'
+            '<span class="a-offscreen">4 947</span></span></div>'
+            '<script>jQuery.parseJSON(\'{"priceAmount":89.47}\');</script>')
+    adapter = stores.adapter_for("https://www.amazon.de/dp/B0TEST")
+    ex = adapter.extract(html)
+    assert ex is not None and ex.price == 89.47 and ex.source == "regex"
