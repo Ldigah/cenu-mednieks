@@ -63,3 +63,33 @@ Direct Latvian shop pages (220.lv, 1a.lv, ksenukai.lt, …) need no presets: the
 | JBL Flip 7 · pigu.lt | 115.39 € (PLUS 94.49 €) |
 | JBL Flip 7 · hinnavaatlus.ee | 89.65 € min across 41 offers |
 | Amazon.de/.pl · both products | not obtainable from this IP (captcha even on residential) — Playwright in CI; selectors documented, medium confidence until first live run |
+
+---
+
+# Rework — the 20 questions (2026-11-19)
+
+The 2026-11-18 decisions above were revisited after 20 follow-up questions. Superseded
+rows are marked; everything else stands.
+
+| # | Question (short) | Decision |
+|---|---|---|
+| R1 | Main goal | **Deal-catching + best price at buy time** (1+2 combined) |
+| R2 | Command latency | **Instant (~1 min)** → Cloudflare Worker webhook + `repository_dispatch` (home PC ruled out: not always on) |
+| R3 | Tracking model | **Product-centric**: `/add <name>` → search-based across aggregators (v2 catalog schema; v1 auto-migrates) |
+| R4 | Users | Me + family/friends → Mini App + inline queries; alerts stay in the owner chat |
+| R5 | Drop sensitivity | **Per-product thresholds** (default 5%, `/threshold`) — supersedes Q8's global 1% |
+| R6 | Targets | **All-time-low alerts instead** of target prices (supersedes Q9) |
+| R7 | Increases | still silent |
+| R8 | Digest | **Enriched**: best store, ATL, Δ7d per product |
+| R9 | History/stats | Raw + derived stats (atl, min7/min30, avg30 in `catalog.product_stats`) |
+| R10 | New commands | /stats /best /where /threshold /add-url (plus phase-1: /where added early) |
+| R11 | Charts | min-price line + per-store lines + ATL marker, ~90-day window |
+| R12 | Web presence | **Telegram Mini App** = static GitHub Pages snapshot (publish.py) |
+| R13 | State races | **Gist lock + merge-on-write** (lock.json + merge_prices/products/bot_state) |
+| R14 | Repo visibility | **Public** — unlimited free Actions minutes + Pages hosting (supersedes Q14) |
+| R15 | Code health | ruff + mypy in CI; stores.py split into `stores/` package |
+| R16 | Store scope | no new stores for now; pigu stays paused (Q3/Q4 sites unchanged) |
+| R17 | Budget | **Always $0** — ScraperAPI free tier (1,000 credits/mo): salidzini+ceno plain 3×/day, kurpirkt rendered 1×/day (daily_only flag) ≈ 480 credits/mo; home PC retired (`setup-local-task.ps1` deleted) |
+| R18 | Instant mechanism | Cloudflare Worker (worker/): read-only cmds answered from a 60 s KV cache of the gist; mutating cmds dispatch `command-run` |
+| R19 | Surfaces | Mini App via bot menu button → Pages URL; inline queries answered by the Worker |
+| R20 | Failure alerts | re-nag every 5th fail after the initial 3-strike alert |

@@ -5,8 +5,9 @@ If you skip this, the first CI run creates the gist automatically and prints GIS
 """
 import sys
 
+import catalog
 import state
-from config import F_BOT, F_PRICES, F_PRODUCTS, GIST_TOKEN
+from config import F_BOT, F_LOCK, F_PRICES, F_PRODUCTS, GIST_TOKEN
 
 
 def main() -> int:
@@ -14,9 +15,10 @@ def main() -> int:
         print("FATAL: GIST_TOKEN missing — put it in .env first (see SETUP.md)", file=sys.stderr)
         return 1
     files = {
-        F_PRODUCTS: state.seed_products(),
+        F_PRODUCTS: catalog.migrate_products(state.seed_products()),
         F_PRICES: {},
         F_BOT: {"update_offset": 0},
+        F_LOCK: {},
     }
     gist_id = state.create_gist(GIST_TOKEN, files)
     print("\n✅ State gist created.")
