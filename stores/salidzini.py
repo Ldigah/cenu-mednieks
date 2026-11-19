@@ -69,6 +69,7 @@ SALIDZINI = SalidziniAdapter(
     domain="salidzini.lv",
     label="salidzini.lv (all LV shops)",
     strategy="requests+playwright",   # /search works via requests usually; Playwright if Cloudflare bites
+    dc_blocked=True,                  # GitHub runners get challenged → ScraperAPI (1 credit, plain)
     selectors={  # CSS fallback only — JSON-LD AggregateOffer above is primary
         "price": "article a.product > data",
         "old_price": None,

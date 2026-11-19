@@ -23,6 +23,7 @@ class StoreAdapter:
     selectors: dict = field(default_factory=dict)
     wait_selector: str = "body"         # Playwright wait target
     notes: str = ""
+    dc_blocked: bool = False            # Cloudflare-challenges datacenter IPs → needs ScraperAPI in CI
     render_api: bool = False            # remote API fetches need JS rendering (credits ×10)
     daily_only: bool = False            # expensive fetches: poll once per day, not every run
 

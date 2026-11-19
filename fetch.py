@@ -68,6 +68,27 @@ CAPTCHA_TITLES = ("robot check", "attention required", "just a moment", "access 
                   "ne robotas")
 
 
+def fetch_scraperapi(url: str, api_key: str, render: bool = False) -> str:
+    """Fetch via ScraperAPI (residential proxy pool) — for Cloudflare-guarded
+    aggregators that challenge datacenter IPs (CI).
+
+    Credit cost: 1 credit plain, 10 with render=true — no retries here, failures
+    are cheaper than burning credits. Raises FetchError on any non-200.
+    """
+    params: dict = {"api_key": api_key, "url": url}
+    if render:
+        params["render"] = "true"
+    try:
+        r = _session.get("https://api.scraperapi.com/", params=params,
+                         timeout=90 if render else REQUEST_TIMEOUT)
+    except requests.RequestException as e:
+        raise FetchError(f"scraperapi network error: {e}") from e
+    if r.status_code == 200 and not _looks_blocked(r.text):
+        return r.text
+    blocked = " (anti-bot page)" if _looks_blocked(r.text) else ""
+    raise FetchError(f"scraperapi HTTP {r.status_code}{blocked}", r.status_code)
+
+
 def _wait_captcha_clear(page, timeout_s: int = 10) -> bool:
     """Turnstile/CF managed challenges often auto-clear in a real engine — give them a chance."""
     import time as _t

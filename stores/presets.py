@@ -41,6 +41,7 @@ PIGU = StoreAdapter(
     domain="pigu.lt",
     label="pigu.lt",
     strategy="requests+playwright",   # CF 403s datacenter IPs on requests; browser may pass
+    dc_blocked=True,                  # paused preset — re-add via /add-url once it cools down
     selectors={},  # JSON-LD only by design: CSS price markup breaks (sup-concatenation → '11539')
     wait_selector="[class*='price'], .price",
     notes="Server-rendered; JSON-LD offers.price = REGULAR price (Pigu PLUS loyalty price sits "

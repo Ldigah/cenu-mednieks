@@ -190,13 +190,13 @@ def merge_prices(theirs: dict | None, ours: dict | None) -> dict:
 
 
 def merge_products(theirs: dict | None, ours: dict) -> dict:
-    """Union of tracking entries; entries updated by this run win."""
+    """Union of catalog products (v2, keyed by id); products updated by this run win."""
     merged: dict = {}
-    for e in (theirs or {}).get("products", []):
-        merged[e.get("url")] = e
-    for e in ours.get("products", []):
-        merged[e.get("url")] = e
-    return {"products": list(merged.values())}
+    for p in (theirs or {}).get("products", []):
+        merged[p.get("id")] = p
+    for p in ours.get("products", []):
+        merged[p.get("id")] = p
+    return {"version": ours.get("version") or 2, "products": list(merged.values())}
 
 
 def merge_bot_state(theirs: dict | None, ours: dict) -> dict:

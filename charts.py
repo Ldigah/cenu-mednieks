@@ -32,7 +32,7 @@ def chart_product(product_name: str, entries: list[dict], prices: dict) -> bytes
             continue
         xs, ys = zip(*hist, strict=False)
         ax.plot(xs, ys, marker="o", markersize=3, linewidth=1.6,
-                label=e.get("store_label", e["url"]))
+                label=e.get("label") or e.get("store_label", e["url"]))
         plotted = True
     if not plotted:
         plt.close(fig)

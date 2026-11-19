@@ -41,10 +41,11 @@ def test_merge_prices_union_and_empty_sides():
 
 
 def test_merge_products_union_ours_wins():
-    theirs = {"products": [{"url": "a", "name": "old"}]}
-    ours = {"products": [{"url": "a", "name": "new"}, {"url": "b", "name": "x"}]}
+    theirs = {"version": 2, "products": [{"id": "a", "name": "old"}]}
+    ours = {"version": 2, "products": [{"id": "a", "name": "new"}, {"id": "b", "name": "x"}]}
     out = merge_products(theirs, ours)
     assert [e["name"] for e in out["products"]] == ["new", "x"]
+    assert out["version"] == 2
 
 
 def test_merge_bot_state_max_offset():

@@ -6,6 +6,7 @@ import logging
 import requests
 
 import alerts
+import catalog
 import charts
 import commands
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
@@ -73,15 +74,22 @@ def _split(text: str, limit: int) -> list[str]:
 
 HELP = (
     "🤖 <b>Cenu Mednieks</b> — price &amp; discount tracker\n\n"
-    "Commands (processed when the bot runs — 3×/day at ~07/15/23 Latvia time):\n"
+    "Products are tracked across stores — /add a name once, I watch everywhere:\n\n"
+    "/add &lt;name&gt; — track a product on salidzini.lv, kurpirkt.lv, ceno.lv\n"
+    "/add &lt;url&gt; [name] — track one specific store page\n"
+    "/add-url &lt;url&gt; [name-part] — attach another store to a product\n"
     "/list — tracked products\n"
-    "/prices — latest known prices\n"
-    "/add &lt;url&gt; [name] — start tracking a product\n"
-    "/remove &lt;name-part&gt; — stop tracking\n"
+    "/prices — best price per product\n"
+    "/where &lt;name-part&gt; — all stores + prices for a product\n"
+    "/threshold &lt;name-part&gt; &lt;pct&gt; — drop-alert threshold (default 5%)\n"
     "/chart [name-part] — price-history chart\n"
-    "/check — what I know right now\n\n"
-    "💡 For instant command processing: GitHub → your repo → Actions → "
-    "<b>Price tracker</b> → <i>Run workflow</i>."
+    "/remove &lt;name-part&gt; — stop tracking\n"
+    "/check — re-scrape everything on this run\n\n"
+    "Alerts: best-price drops ≥ threshold, all-time lows, new/deeper discounts, "
+    "restocks. Price rises are recorded silently.\n"
+    "💡 Commands are processed when the bot runs (3×/day) — for instant answers "
+    "and instant /add, use the web app (bot menu button) or trigger "
+    "Actions → <b>Price tracker</b> → <i>Run workflow</i>."
 )
 
 
@@ -119,16 +127,22 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict) -
 
     if cmd == "list":
         if not products["products"]:
-            send_message(chat_id, "Nothing tracked yet. /add &lt;url&gt; [name]")
+            send_message(chat_id, "Nothing tracked yet. /add &lt;name&gt; or /add &lt;url&gt;")
         else:
-            lines = [f"{i}. {alerts.esc(commands.entry_label(e))}\n   {e['url']}"
-                     for i, e in enumerate(products["products"], 1)]
+            lines = []
+            for i, prod in enumerate(products["products"], 1):
+                stores_txt = ", ".join(sorted({o["store"] for o in prod["offers"]}))
+                lines.append(f"{i}. <b>{alerts.esc(prod['name'] or prod['id'])}</b> — "
+                             f"{len(prod['offers'])} store(s): {alerts.esc(stores_txt)}")
             send_message(chat_id, "<b>Tracked products</b>\n" + "\n".join(lines))
 
     elif cmd == "prices":
-        lines = ["💰 <b>Latest prices</b>"]
-        for e in products["products"]:
-            st = prices.get(e["url"], {})
+        lines = ["💰 <b>Best prices now</b>"]
+        for prod in products["products"]:
+            offer, st = catalog.best_state(prod, prices)
+            if offer is None or st is None:
+                lines.append(f"• {alerts.esc(prod['name'] or prod['id'])}: no data yet")
+                continue
             p = st.get("price")
             old = st.get("old_price")
             stock = st.get("in_stock")
@@ -138,59 +152,72 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict) -
                     if st.get("converted") and st.get("display") else "")
             warn = (" ⚠️ non-EUR" if st.get("currency") not in (None, "EUR")
                     and not st.get("converted") else "")
-            lines.append(f"{badge} {alerts.esc(commands.entry_label(e))}: "
-                         f"<b>{alerts.fmt_eur(p)}</b>{extra}{conv}{warn}")
+            n = len(prod["offers"])
+            lines.append(f"{badge} {alerts.esc(prod['name'] or prod['id'])}: "
+                         f"<b>{alerts.fmt_eur(p)}</b> at "
+                         f"{alerts.esc(offer.get('label') or offer['store'])}"
+                         f"{extra}{conv}{warn} · {n} store{'s' if n != 1 else ''}")
         send_message(chat_id, "\n".join(lines))
 
+    elif cmd == "where":
+        matches = catalog.find_products(products, arg) if arg else products["products"]
+        if not matches:
+            send_message(chat_id, f"Nothing matches “{alerts.esc(arg)}”.")
+            return chat_id
+        for prod in matches[:3]:  # keep the reply manageable
+            lines = [f"🏬 <b>{alerts.esc(prod['name'] or prod['id'])}</b> — "
+                     f"{len(prod['offers'])} store(s)"]
+            for o in prod["offers"]:
+                st = prices.get(o["url"], {}) or {}
+                if st.get("fails"):
+                    lines.append(f"• {alerts.esc(o['store'])}: ⚠️ failing ×{st['fails']}")
+                elif st.get("price") is not None:
+                    shop = f" ({alerts.esc(st['shop'])})" if st.get("shop") else ""
+                    stock = "" if st.get("in_stock") is not False else " ❌out"
+                    lines.append(f"• {alerts.esc(o['store'])}: <b>{alerts.fmt_eur(st['price'])}</b>"
+                                 f"{shop}{stock}")
+                else:
+                    lines.append(f"• {alerts.esc(o['store'])}: not checked yet")
+            send_message(chat_id, "\n".join(lines))
+
     elif cmd == "add":
-        parts = arg.split(maxsplit=1)
-        if not parts:
-            send_message(chat_id, "Usage: /add &lt;product-url&gt; [name]")
-            return chat_id
-        url, name = parts[0], (parts[1].strip() if len(parts) > 1 else "")
-        if any(e["url"] == url for e in products["products"]):
-            send_message(chat_id, "Already tracking that URL.")
-            return chat_id
-        entry, note = commands.make_entry(url, name)
-        if entry is None:
-            send_message(chat_id, f"❌ {alerts.esc(note)}")
-            return chat_id
-        if not entry["name"]:
-            entry["name"] = entry["store_label"]
-        products["products"].append(entry)
-        send_message(chat_id, f"➕ Added <b>{alerts.esc(entry['name'])}</b> "
-                              f"({alerts.esc(entry['store_label'])}) — checking it this run.{note}")
+        _cmd_add(chat_id, products, arg)
+
+    elif cmd == "add-url":
+        _cmd_add_url(chat_id, products, arg)
+
+    elif cmd == "threshold":
+        _cmd_threshold(chat_id, products, arg)
 
     elif cmd == "remove":
         if not arg:
             send_message(chat_id, "Usage: /remove &lt;name-part&gt;")
             return chat_id
-        matches = commands.find_entries(products, arg)
+        matches = catalog.find_products(products, arg)
         if not matches:
             send_message(chat_id, f"Nothing matches “{alerts.esc(arg)}”.")
         elif len(matches) == 1:
-            products["products"] = [e for e in products["products"] if e is not matches[0]]
-            send_message(chat_id, f"🗑 Removed {alerts.esc(commands.entry_label(matches[0]))}")
+            products["products"] = [p for p in products["products"] if p is not matches[0]]
+            send_message(chat_id, f"🗑 Removed <b>{alerts.esc(matches[0]['name'])}</b> "
+                                  f"({len(matches[0]['offers'])} stores) and its history.")
         else:
-            listing = "\n".join(f"• {alerts.esc(commands.entry_label(e))}" for e in matches)
+            listing = "\n".join(f"• {alerts.esc(p['name'] or p['id'])}" for p in matches)
             send_message(chat_id, f"Multiple matches — be more specific:\n{listing}")
 
     elif cmd == "chart":
-        matches = commands.find_entries(products, arg) if arg else products["products"]
+        matches = catalog.find_products(products, arg) if arg else products["products"]
         if not matches:
             send_message(chat_id, f"Nothing matches “{alerts.esc(arg)}”.")
             return chat_id
-        groups: dict[str, list[dict]] = {}
-        for e in matches:
-            groups.setdefault(e["name"] or e["id"], []).append(e)
         sent = 0
-        for name, entries in groups.items():
+        for prod in matches:
             if sent >= 3:
                 send_message(chat_id, "(more charts omitted — narrow the name)")
                 break
-            png = charts.chart_product(name, entries, prices)
+            png = charts.chart_product(prod["name"] or prod["id"], prod["offers"], prices)
             if png:
-                send_photo(chat_id, png, caption=f"📈 {alerts.esc(name)} — price history")
+                send_photo(chat_id, png,
+                           caption=f"📈 {alerts.esc(prod['name'] or prod['id'])} — price history")
                 sent += 1
         if sent == 0:
             send_message(chat_id, "No price history yet — charts appear after the first run.")
@@ -202,3 +229,107 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict) -
         send_message(chat_id, f"Unknown command /{alerts.esc(cmd)}. Try /help")
 
     return chat_id
+
+
+def _cmd_add(chat_id, products: dict, arg: str) -> None:
+    """/add <name> → product across aggregators; /add <url> [name] → single-store product."""
+    if not arg:
+        send_message(chat_id, "Usage: /add &lt;product-name&gt;  or  /add &lt;url&gt; [name]")
+        return
+    first = arg.split(maxsplit=1)[0]
+    if catalog.looks_like_url(first):
+        parts = arg.split(maxsplit=1)
+        url = parts[0]
+        name = parts[1].strip() if len(parts) > 1 else ""
+        offer, note = catalog.make_offer(url)
+        if offer is None:
+            send_message(chat_id, f"❌ {alerts.esc(note)}")
+            return
+        prod_id = catalog.slugify(name or offer["store"])
+        existing = next((p for p in products["products"] if p["id"] == prod_id), None)
+        if existing is not None and catalog.add_offer(existing, offer):
+            send_message(chat_id, f"➕ Added <b>{alerts.esc(offer['store'])}</b> to "
+                                  f"<b>{alerts.esc(existing['name'])}</b> — checking it this run.{note}")
+            return
+        if any(o["url"] == offer["url"] for p in products["products"] for o in p["offers"]):
+            send_message(chat_id, "Already tracking that URL.")
+            return
+        prod = catalog.make_product(name or offer["store"], [offer])
+        products["products"].append(prod)
+        send_message(chat_id, f"➕ Tracking <b>{alerts.esc(prod['name'])}</b> at "
+                              f"{alerts.esc(offer['store'])} — checking it this run.{note}")
+        return
+    # product search mode
+    query = arg.strip()
+    if any(p["id"] == catalog.slugify(query) for p in products["products"]):
+        send_message(chat_id, f"Already tracking <b>{alerts.esc(query)}</b>.")
+        return
+    prod = catalog.make_product(query, catalog.discovery_offers(query))
+    stores_txt = ", ".join(sorted({o["store"] for o in prod["offers"]}))
+    products["products"].append(prod)
+    send_message(chat_id, f"➕ Tracking <b>{alerts.esc(prod['name'])}</b> across "
+                          f"{alerts.esc(stores_txt)} — first results this run.\n"
+                          f"Attach more stores (Amazon, direct shops) with "
+                          f"/add-url &lt;url&gt; {alerts.esc(catalog.slugify(query))}.")
+
+
+def _cmd_add_url(chat_id, products: dict, arg: str) -> None:
+    """/add-url <url> [name-part] — attach a store offer to an existing (or new) product."""
+    parts = arg.split(maxsplit=1)
+    if not parts:
+        send_message(chat_id, "Usage: /add-url &lt;product-url&gt; [name-part]")
+        return
+    url = parts[0]
+    part = parts[1].strip() if len(parts) > 1 else ""
+    offer, note = catalog.make_offer(url)
+    if offer is None:
+        send_message(chat_id, f"❌ {alerts.esc(note)}")
+        return
+    if any(o["url"] == offer["url"] for p in products["products"] for o in p["offers"]):
+        send_message(chat_id, "Already tracking that URL.")
+        return
+    matches = catalog.find_products(products, part) if part else []
+    if len(matches) == 1:
+        target = matches[0]
+        if catalog.add_offer(target, offer):
+            send_message(chat_id, f"➕ Added <b>{alerts.esc(offer['store'])}</b> to "
+                                  f"<b>{alerts.esc(target['name'])}</b> — checking it this run.{note}")
+        else:
+            send_message(chat_id, "Already tracking that URL.")
+        return
+    if len(matches) > 1:
+        listing = "\n".join(f"• {alerts.esc(p['name'] or p['id'])}" for p in matches)
+        send_message(chat_id, f"Multiple products match — be more specific:\n{listing}")
+        return
+    name = part or offer["store"]
+    prod = catalog.make_product(name, [offer])
+    products["products"].append(prod)
+    send_message(chat_id, f"➕ Tracking <b>{alerts.esc(prod['name'])}</b> at "
+                          f"{alerts.esc(offer['store'])} — checking it this run.{note}")
+
+
+def _cmd_threshold(chat_id, products: dict, arg: str) -> None:
+    """/threshold <name-part> <pct> — per-product drop-alert threshold."""
+    parts = arg.rsplit(maxsplit=1)
+    if len(parts) != 2:
+        send_message(chat_id, "Usage: /threshold &lt;name-part&gt; &lt;pct&gt;  (e.g. /threshold jbl 10)")
+        return
+    part, pct_raw = parts[0].strip(), parts[1].strip().rstrip("%")
+    try:
+        pct = float(pct_raw)
+    except ValueError:
+        send_message(chat_id, f"“{alerts.esc(pct_raw)}” is not a percentage.")
+        return
+    if not 0.1 <= pct <= 90:
+        send_message(chat_id, "Pick a threshold between 0.1% and 90%.")
+        return
+    matches = catalog.find_products(products, part)
+    if not matches:
+        send_message(chat_id, f"Nothing matches “{alerts.esc(part)}”.")
+    elif len(matches) > 1:
+        listing = "\n".join(f"• {alerts.esc(p['name'] or p['id'])}" for p in matches)
+        send_message(chat_id, f"Multiple products match — be more specific:\n{listing}")
+    else:
+        matches[0]["threshold_pct"] = pct
+        send_message(chat_id, f"🎚 <b>{alerts.esc(matches[0]['name'])}</b>: drop alerts now "
+                              f"fire at −{pct:g}%.")

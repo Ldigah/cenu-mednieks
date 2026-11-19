@@ -14,6 +14,11 @@ except ImportError:  # dotenv optional in CI (env comes from workflow)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GIST_TOKEN = os.environ.get("GIST_TOKEN", "")
+# ScraperAPI (free plan: 1000 credits/month) — lets CI scrape the Cloudflare-guarded
+# LV aggregators (salidzini/ceno 1 credit plain, kurpirkt 10 credits rendered).
+# Without it, those stores fall back to the direct requests/playwright ladder
+# (works from residential IPs, e.g. local runs).
+SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY", "")
 
 
 def _normalize_gist_id(raw: str) -> str:
@@ -25,8 +30,9 @@ def _normalize_gist_id(raw: str) -> str:
 
 GIST_ID = _normalize_gist_id(os.environ.get("GIST_ID", ""))
 
-# --- tuned constants (QUESTIONS.md answers) ---
-DROP_ALERT_MIN_PCT = 1.0      # Q8: alert on drops >= 1%
+# --- tuned constants (QUESTIONS.md answers + 2026-11-19 rework) ---
+DROP_ALERT_MIN_PCT = 1.0      # legacy offer-level floor (discount/restock events)
+DEFAULT_DROP_PCT = 5.0        # product-level min-price drop threshold (per-product override via /threshold)
 FAIL_ALERT_AFTER = 3          # Q21: alert after 3 consecutive failures
 DIGEST_RUN_HOUR_UTC = 21      # Q11: daily digest rides the 21:00 UTC run (= 23:00 Latvia, winter)
 HISTORY_MAX_POINTS = 500      # per-entry price history cap (~5 months at 3 runs/day)

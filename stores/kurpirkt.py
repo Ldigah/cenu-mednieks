@@ -65,6 +65,7 @@ KURPIKT = KurpirktAdapter(
     domain="kurpirkt.lv",
     label="kurpirkt.lv (all LV shops)",
     strategy="playwright",   # CF managed challenge on ALL plain-requests fetches
+    dc_blocked=True,         # GitHub runners get challenged → ScraperAPI (10 credits, rendered)
     render_api=True,         # remote API fetches need JS rendering to clear Cloudflare
     daily_only=True,         # rendered fetches cost 10 API credits — poll once per day
     selectors={  # documentation only — extract() above is the real path
