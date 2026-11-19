@@ -190,9 +190,15 @@ def merge_prices(theirs: dict | None, ours: dict | None) -> dict:
 
 
 def merge_products(theirs: dict | None, ours: dict) -> dict:
-    """Union of catalog products (v2, keyed by id); products updated by this run win."""
+    """Union of catalog products (v2, keyed by id); products updated by this run win.
+
+    v1 strays (flat entries without an offers key — e.g. an old-code runner wrote
+    the gist between our load and write) are ignored, not merged as products.
+    """
     merged: dict = {}
     for p in (theirs or {}).get("products", []):
+        if isinstance(p, dict) and "offers" not in p:
+            continue
         merged[p.get("id")] = p
     for p in ours.get("products", []):
         merged[p.get("id")] = p

@@ -105,3 +105,12 @@ def test_product_stats_windows():
     assert s["points"] == 40 and s["stores"] == 1
     empty = catalog.product_stats(catalog.make_product("y", [o1]), {"1": {}}, now=now)
     assert empty["min7"] is None and empty["best"]["price"] is None
+
+
+def test_migrate_drops_zero_offer_v2_products():
+    v2 = {"version": 2, "products": [
+        {"id": "real", "name": "Real", "offers": [{"url": "https://a/1"}]},
+        {"id": "ghost", "name": "Ghost", "offers": []},
+    ]}
+    out = catalog.migrate_products(v2)
+    assert [p["id"] for p in out["products"]] == ["real"]

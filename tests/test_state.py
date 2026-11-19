@@ -54,3 +54,13 @@ def test_merge_bot_state_max_offset():
     out = merge_bot_state(theirs, ours)
     assert out["update_offset"] == 9 and out["chat_id"] == 1
     assert merge_bot_state(ours, theirs)["update_offset"] == 9
+
+
+def test_merge_products_ignores_v1_strays():
+    # an old-code runner wrote flat v1 entries into the gist between load and write;
+    # they must not be unioned as products
+    theirs = {"products": [{"id": "x", "url": "u", "name": "legacy"}]}   # no offers key
+    ours = {"version": 2, "products": [{"id": "x", "name": "new",
+                                        "offers": [{"url": "u", "store": "s", "label": "s"}]}]}
+    out = merge_products(theirs, ours)
+    assert len(out["products"]) == 1 and out["products"][0]["offers"]

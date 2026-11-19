@@ -6,11 +6,26 @@
       "name": "UGREEN LP923",
       "threshold_pct": null,
       "offers": [
-        {"url": "https://www.salidzini.lv/search?q=UGREEN+LP923", "store": "salidzini.lv", "label": "salidzini.lv"},
-        {"url": "https://www.kurpirkt.lv/cena.php?q=ugreen+lp923", "store": "kurpirkt.lv", "label": "kurpirkt.lv"},
-        {"url": "https://ceno.lv/search?q=UGREEN+LP923", "store": "ceno.lv", "label": "ceno.lv"},
-        {"url": "https://www.amazon.de/dp/B07PJ7VYP9", "store": "amazon.de", "label": "amazon.de"},
-        {"url": "https://www.amazon.pl/dp/B0D2Q5M35Y", "store": "amazon.pl", "label": "amazon.pl"}
+        {
+          "url": "https://www.salidzini.lv/search?q=UGREEN+LP923",
+          "store": "salidzini.lv",
+          "label": "salidzini.lv"
+        },
+        {
+          "url": "https://www.kurpirkt.lv/cena.php?q=ugreen+lp923",
+          "store": "kurpirkt.lv",
+          "label": "kurpirkt.lv"
+        },
+        {
+          "url": "https://ceno.lv/search?q=UGREEN+LP923",
+          "store": "ceno.lv",
+          "label": "ceno.lv"
+        },
+        {
+          "url": "https://www.amazon.pl/dp/B0D2Q5M35Y",
+          "store": "amazon.pl",
+          "label": "amazon.pl"
+        }
       ]
     },
     {
@@ -18,12 +33,31 @@
       "name": "JBL Flip 7",
       "threshold_pct": null,
       "offers": [
-        {"url": "https://www.salidzini.lv/search?q=JBL+Flip+7", "store": "salidzini.lv", "label": "salidzini.lv"},
-        {"url": "https://www.kurpirkt.lv/cena.php?q=flip+7+jbl&p1=50", "store": "kurpirkt.lv", "label": "kurpirkt.lv"},
-        {"url": "https://ceno.lv/search?q=JBL+Flip+7", "store": "ceno.lv", "label": "ceno.lv"},
-        {"url": "https://www.hinnavaatlus.ee/5681989/jbl-flip-7-black/", "store": "hinnavaatlus.ee", "label": "hinnavaatlus.ee"},
-        {"url": "https://www.amazon.de/dp/B0DXKMXPXW", "store": "amazon.de", "label": "amazon.de"},
-        {"url": "https://www.amazon.pl/dp/B0DXKMXPXW", "store": "amazon.pl", "label": "amazon.pl"}
+        {
+          "url": "https://www.salidzini.lv/search?q=JBL+Flip+7",
+          "store": "salidzini.lv",
+          "label": "salidzini.lv"
+        },
+        {
+          "url": "https://www.kurpirkt.lv/cena.php?q=flip+7+jbl&p1=50",
+          "store": "kurpirkt.lv",
+          "label": "kurpirkt.lv"
+        },
+        {
+          "url": "https://ceno.lv/search?q=JBL+Flip+7",
+          "store": "ceno.lv",
+          "label": "ceno.lv"
+        },
+        {
+          "url": "https://www.hinnavaatlus.ee/5681989/jbl-flip-7-black/",
+          "store": "hinnavaatlus.ee",
+          "label": "hinnavaatlus.ee"
+        },
+        {
+          "url": "https://www.amazon.pl/dp/B0DXKMXPXW",
+          "store": "amazon.pl",
+          "label": "amazon.pl"
+        }
       ]
     }
   ]

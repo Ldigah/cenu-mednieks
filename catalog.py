@@ -69,7 +69,8 @@ def migrate_products(raw: dict | None) -> dict:
     """Accept v1 (flat url-entries) or v2; always return the v2 shape."""
     raw = raw or {}
     if raw.get("version") == CATALOG_VERSION:
-        prods = [_normalize_product(p) for p in raw.get("products") or []]
+        prods = [p for p in (_normalize_product(p) for p in raw.get("products") or [])
+                 if p["offers"]]  # zero-offer products are merge artifacts — drop them
         return {"version": CATALOG_VERSION, "products": prods}
     # v1: group flat entries by product name (empty name → keep old id as the group key)
     grouped: dict[str, dict] = {}
