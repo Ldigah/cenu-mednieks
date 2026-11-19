@@ -39,6 +39,23 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook" \
 *Contents: read & write* on this repository (needed for `repository_dispatch`).
 Keep it distinct from `GIST_TOKEN` (which only needs the `gist` scope).
 
+
+## Command flow (important)
+
+With a webhook active, Telegram forbids `getUpdates` (HTTP 409) — so CI cannot
+poll for commands. The flow is therefore:
+
+- **Read-only** (`/prices /where /stats /best /list`): answered by the Worker
+  instantly from the cached gist.
+- **Mutating** (`/add /add-url /threshold /remove /chart /check`): the Worker
+  dispatches `command-run` **with the command text in `client_payload.commands`**;
+  the CI run processes those commands directly (see `payload_updates` in
+  `telegram_io.py` and the `GITHUB_EVENT_PATH` block in `scraper.py`). Only
+  `OWNER_CHAT_ID` may trigger runs.
+
+Inline queries must be enabled once in BotFather (`/setinline`) or Telegram sends
+`@bot query` as a normal message instead of an inline query.
+
 ## Verify
 
 - Telegram: `/prices` → instant reply.

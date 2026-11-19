@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -189,6 +190,16 @@ def main() -> int:
                     telegram_io.handle_update(u, products, prices, bot_state)
             except Exception as e:  # noqa: BLE001 — commands must not kill the run
                 log.warning("command processing failed: %s", e)
+            # --- 1b. Commands delivered by the Worker inside the dispatch payload ---
+            event_path = os.environ.get("GITHUB_EVENT_PATH")
+            if event_path and os.path.exists(event_path):
+                try:
+                    with open(event_path, encoding="utf-8") as fh:
+                        event = json.load(fh)
+                    for u in telegram_io.payload_updates(event):
+                        telegram_io.handle_update(u, products, prices, bot_state)
+                except (OSError, ValueError) as e:
+                    log.warning("payload command processing failed: %s", e)
             if not chat_id:
                 chat_id = bot_state.get("chat_id") or TELEGRAM_CHAT_ID
 

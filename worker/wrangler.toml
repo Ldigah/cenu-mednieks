@@ -15,8 +15,10 @@ compatibility_date = "2026-11-01"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "f6c42ce9c6b446d580e5316762ee40c5"
 
 [vars]
-GIST_ID = "REPLACE_WITH_GIST_ID"
+GIST_ID = "4130820d0e33c4c554d328d81c1327da"
 REPO = "Ldigah/cenu-mednieks"
+# run-triggering commands are accepted only from this Telegram chat id:
+OWNER_CHAT_ID = "497422706"

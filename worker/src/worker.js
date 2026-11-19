@@ -51,7 +51,14 @@ async function handle(update, env) {
       return send(chatId, text, env);
     }
     if (["add", "add-url", "threshold", "remove", "chart", "check"].includes(cmd)) {
-      const ok = await dispatch(env);
+      // Only the owner chat may trigger runs (dispatches cost Actions minutes).
+      // The command text travels IN the dispatch payload: with a webhook active,
+      // Telegram forbids getUpdates (409), so CI cannot poll — it processes
+      // github.event.client_payload.commands directly.
+      if (!env.OWNER_CHAT_ID || String(chatId) !== String(env.OWNER_CHAT_ID)) {
+        return send(chatId, "⛔ Run-triggering commands are limited to the bot's owner.", env);
+      }
+      const ok = await dispatch(env, msg.text, chatId);
       return send(chatId, ok
         ? `🚀 Queued a full run — I'll process /${cmd} and reply in ~2–5 minutes.`
         : "⚠️ Could not trigger a run — check the Worker's GH_TOKEN secret.", env);
@@ -250,7 +257,7 @@ function send(chatId, text, env) {
   return tg("sendMessage", { chat_id: chatId, text, disable_web_page_preview: true }, env);
 }
 
-async function dispatch(env) {
+async function dispatch(env, text, chatId) {
   const r = await fetch(`https://api.github.com/repos/${env.REPO}/dispatches`, {
     method: "POST",
     headers: {
@@ -259,7 +266,10 @@ async function dispatch(env) {
       "content-type": "application/json",
       "user-agent": "cenu-mednieks-worker",
     },
-    body: JSON.stringify({ event_type: "command-run" }),
+    body: JSON.stringify({
+      event_type: "command-run",
+      client_payload: { commands: [{ text, chat_id: chatId }] },
+    }),
   });
   if (!r.ok) console.error("dispatch failed:", r.status, (await r.text()).slice(0, 300));
   return r.ok;

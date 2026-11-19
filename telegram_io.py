@@ -53,8 +53,31 @@ def get_updates(last_update_id: int) -> list[dict]:
         params["offset"] = last_update_id + 1
     r = requests.get(API.format(token=TELEGRAM_BOT_TOKEN, method="getUpdates"),
                      params=params, timeout=25)
+    if r.status_code == 409:
+        # A webhook (the Cloudflare Worker) is active — Telegram forbids getUpdates
+        # while it's set. Commands arrive via repository_dispatch payloads instead.
+        log.info("webhook active — getUpdates skipped (commands flow through the Worker)")
+        return []
     r.raise_for_status()
     return r.json().get("result", [])
+
+
+def payload_updates(event: dict) -> list[dict]:
+    """Synthetic updates from a repository_dispatch client_payload.
+
+    The Worker forwards owner commands as {commands: [{text, chat_id}]} because
+    getUpdates is unavailable while the webhook is set (Telegram 409).
+    """
+    cmds = (event.get("client_payload") or {}).get("commands") or []
+    out = []
+    for i, cmd in enumerate(cmds):
+        text = (((cmd or {}).get("text")) or "").strip()
+        chat = (cmd or {}).get("chat_id")
+        if text and chat:
+            out.append({"update_id": -(i + 1),
+                        "message": {"message_id": 0, "date": 0,
+                                    "chat": {"id": chat}, "text": text}})
+    return out
 
 
 def _split(text: str, limit: int) -> list[str]:
