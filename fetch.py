@@ -41,6 +41,13 @@ def _looks_blocked(html: str) -> bool:
     return any(m in low for m in BLOCK_MARKERS)
 
 
+def _force_utf8(r: requests.Response) -> None:
+    """Sites without a charset header default to latin-1 in requests, which garbles
+    € ("99,99Â â¬"). EU retail pages are utf-8 — override the legacy default."""
+    if r.encoding is None or r.encoding.upper() in ("ISO-8859-1", "LATIN1", "LATIN-1"):
+        r.encoding = "utf-8"
+
+
 def fetch_requests(url: str) -> str:
     """Plain HTTP GET with retries; raises FetchError on failure/block."""
     last: FetchError | None = None
@@ -52,6 +59,7 @@ def fetch_requests(url: str) -> str:
             last = FetchError(f"network error: {e}")
             time.sleep(2 * (attempt + 1))
             continue
+        _force_utf8(r)
         if r.status_code == 200 and not _looks_blocked(r.text):
             return r.text
         blocked = " (anti-bot page)" if _looks_blocked(r.text) else ""
@@ -90,6 +98,7 @@ def fetch_scraperapi(url: str, api_key: str, render: bool = False) -> str:
             last = FetchError(f"scraperapi network error: {e}")
             time.sleep(5)
             continue
+        _force_utf8(r)
         if r.status_code == 200 and not _looks_blocked(r.text):
             return r.text
         blocked = " (anti-bot page)" if _looks_blocked(r.text) else ""
