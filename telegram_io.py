@@ -21,6 +21,7 @@ import alerts
 import catalog
 import charts
 import commands
+import i18n
 import users as users_mod
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
@@ -170,6 +171,92 @@ INTRO = (
     "Once approved you can track products, build a watchlist and get deal alerts."
 )
 
+HELP_LV = (
+    "🤖 <b>Cenu Mednieks</b> — cenu un atlaides mednieks\n\n"
+    "Viens kopīgs katalogs, tavs saraksts — seko produktam un ziņošu, kad "
+    "tas kļūst lētāks.\n\n"
+    "<b>Skatīt (tūlīt)</b>\n"
+    "/prices — labākā cena produktam (+ % virs minimuma)\n"
+    "/best — dziļākās atlaides pret 30 dienu vidējo\n"
+    "/where &lt;daļa&gt; — visi veikali + cenas produktam\n"
+    "/stats [daļa] — labākā, minimums, min7/30, vidējā, nestabilitāte, mērķis\n"
+    "/list [#tags] — visi produkti (filtrēt pēc tags)\n"
+    "/tags — visi tags\n"
+    "/search &lt;vārds&gt; — cenu pārbaude bez sekošanas (5/dienā)\n\n"
+    "<b>Sekot</b>\n"
+    "/add &lt;vārds&gt; — parādu atsākumus, tu izvēlies (vai /add &lt;url&gt; [nosaukums])\n"
+    "/add_url &lt;url&gt; [daļa] — pievienot citu veikalu\n"
+    "/watch [daļa] / /unwatch &lt;daļa&gt; — kas tevi ziņo ⭐\n"
+    "/mute &lt;daļa&gt; / /unmute &lt;daļa&gt; — apklusināt produktu\n"
+    "/target &lt;daļa&gt; &lt;cena|off&gt; — ziņot, kad cena ≤ X 🎯\n"
+    "/threshold &lt;daļa&gt; &lt;pct&gt; — krituma slieksnis (noklusējums 5%)\n"
+    "/tag &lt;daļa&gt; #tags / /untag &lt;daļa&gt; #tags — kārtot\n"
+    "/remove &lt;daļa&gt; — beigt sekošanu (prasa apstiprinājumu)\n\n"
+    "<b>Tu</b>\n"
+    "/settings — kopsavilkums, klusās stundas, valoda\n"
+    "/watchall — (īpašnieks) dzirdēt par visu\n"
+    "/quota — cik produktu vari vēl pievienot\n"
+    "/whoami — tavs profils\n"
+    "/requests — (īpašnieks) piekļuves pieprasījumi\n\n"
+    "Paziņojumi: cenu kritumi ≥ sliekšņa, visu laiku zemākās cenas, atlaides, "
+    "atgriešanās noliktavā, mērķa trāpījumi. Kāpumi fiksējas klusi. Klusās "
+    "stundas tur paziņojumus līdz rītam.\n"
+    "💡 Atbildes šeit tūlīt; /add un /chart rezultāti nāk ar nākamo palaišanu "
+    "(~2–5 min no app vai Worker)."
+)
+
+
+def tr(user: dict, key: str, **fields) -> str:
+    """Localized user message (phase 3): per-user language, i18n fallback to en."""
+    lang = (user.get("prefs") or {}).get("lang") or "en"
+    return i18n.T(lang, key, **fields)
+
+
+def register_commands(owner_chat_id=None) -> None:
+    """Self-healing /setcommands equivalent (setMyCommands) — idempotent, called
+    every run so a recreated bot or new chat scope always has the list.
+
+    Everyone gets the member set; the owner's chat additionally gets the
+    owner-only commands via a chat scope.
+    """
+    member = [
+        ("start", "Open the bot / main menu"),
+        ("add", "Track a product by name (guided pick) or URL"),
+        ("add_url", "Attach another store URL to a tracked product"),
+        ("watch", "Show your watchlist or watch a product"),
+        ("unwatch", "Stop watching a product"),
+        ("mute", "Silence alerts for one product"),
+        ("unmute", "Un-silence a product"),
+        ("target", "Ping me when price drops under X"),
+        ("threshold", "Set drop-alert threshold % for a product"),
+        ("tag", "Add a #tag to a product"),
+        ("untag", "Remove a #tag from a product"),
+        ("tags", "Show all tags"),
+        ("search", "Price-check without tracking (5/day)"),
+        ("list", "Show tracked products (optionally #tag)"),
+        ("prices", "Best price per product with % above ATL"),
+        ("where", "All stores and prices for one product"),
+        ("stats", "Best, ATL, min/avg, volatility, your target"),
+        ("best", "Deepest current discounts vs 30-day average"),
+        ("chart", "Price history chart for a product"),
+        ("remove", "Stop tracking a product (confirm)"),
+        ("settings", "Digest, quiet hours and language"),
+        ("quota", "Your remaining product quota"),
+        ("whoami", "Your profile"),
+        ("help", "How to use the bot"),
+    ]
+    owner_only = [
+        ("requests", "Review access requests (owner)"),
+        ("watchall", "Toggle alerts for everything (owner)"),
+        ("check", "Re-scrape everything now (owner)"),
+        ("ping", "Worker self-test (owner)"),
+    ]
+    to_kb = lambda cs: [{"command": c, "description": d} for c, d in cs]  # noqa: E731
+    _call("setMyCommands", commands=to_kb(member))
+    if owner_chat_id:
+        _call("setMyCommands", commands=to_kb(member + owner_only),
+              scope={"type": "chat", "chat_id": int(owner_chat_id)})
+
 # ---------------------------------------------------------------------------
 # Inline keyboards (pure — callback data ≤ 64 bytes)
 # ---------------------------------------------------------------------------
@@ -310,7 +397,8 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict,
     is_owner = user.get("role") == users_mod.ROLE_OWNER
 
     if cmd in ("start", "help"):
-        send_message(chat_id, HELP)
+        lang = (user.get("prefs") or {}).get("lang") or "en"
+        send_message(chat_id, HELP_LV if lang == "lv" else HELP)
         return chat_id
 
     if cmd == "whoami":
@@ -356,8 +444,8 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict,
 
     if cmd == "quota":
         q = users_mod.quota_left(user, products)
-        send_message(chat_id, "♾ Unlimited (owner)." if q is None
-                     else f"📦 You can add <b>{q}</b> more product(s).")
+        send_message(chat_id, tr(user, "quota_none") if q is None
+                     else tr(user, "quota_left", q=q))
         return chat_id
 
     if cmd == "list":
@@ -854,8 +942,8 @@ def _cmd_threshold(chat_id, products: dict, bot_state: dict, user: dict, ud: dic
                     f"to −{pct:g}%?", f"✅ Set −{pct:g}%")
         return
     prod["threshold_pct"] = pct
-    send_message(chat_id, f"🎚 <b>{alerts.esc(prod['name'])}</b>: drop alerts now "
-                          f"fire at −{pct:g}%.")
+    send_message(chat_id, tr(user, "threshold_set",
+                             name=alerts.esc(prod["name"]), pct=f"{pct:g}"))
 
 
 def _cmd_target(chat_id, products: dict, prices: dict, bot_state: dict, user: dict,
@@ -878,10 +966,10 @@ def _cmd_target(chat_id, products: dict, prices: dict, bot_state: dict, user: di
     prod = matches[0]
     if price_raw.lower() in ("off", "none", "0", "clear"):
         if users_mod.clear_target(user, prod["id"]):
-            send_message(chat_id, f"🎯 Target cleared for "
-                                  f"<b>{alerts.esc(prod['name'])}</b>.")
+            send_message(chat_id, tr(user, "target_cleared",
+                                     name=alerts.esc(prod["name"])))
         else:
-            send_message(chat_id, "You had no target on that product.")
+            send_message(chat_id, tr(user, "no_target"))
         return
     price = commands.parse_price_arg(price_raw)
     if price is None or not 0.5 <= price <= 100000:
@@ -900,14 +988,16 @@ def _cmd_target(chat_id, products: dict, prices: dict, bot_state: dict, user: di
     users_mod.watch(user, prod["id"])  # a target you don't hear about is useless
     _, best_st = catalog.best_state(prod, prices)
     now_p = best_st.get("price") if best_st else None
+    name = alerts.esc(prod["name"])
     if now_p is not None and now_p <= price:
-        send_message(chat_id, f"🎯 <b>{alerts.esc(prod['name'])}</b>: target "
-                              f"{alerts.fmt_eur(price)} set — and it's ALREADY there "
-                              f"({alerts.fmt_eur(now_p)})! Watch your inbox.")
+        send_message(chat_id, tr(user, "target_already", name=name,
+                                 price=alerts.fmt_eur(price),
+                                 now_p=alerts.fmt_eur(now_p)))
     else:
-        away = f" ({(now_p - price) / price * 100:.0f}% away)" if now_p is not None else ""
-        send_message(chat_id, f"🎯 <b>{alerts.esc(prod['name'])}</b>: I'll ping you when "
-                              f"the best price drops to ≤ {alerts.fmt_eur(price)}{away}.")
+        away = (f" ({(now_p - price) / price * 100:.0f}% away)"
+                if now_p is not None else "")
+        send_message(chat_id, tr(user, "target_set", name=name,
+                                 price=alerts.fmt_eur(price), away=away))
 
 
 def _cmd_tag(chat_id, products: dict, user: dict, ud: dict, arg: str, on: bool) -> None:
@@ -968,10 +1058,9 @@ def _cmd_watch(chat_id, products: dict, user: dict, arg: str) -> None:
     if prod is None:
         return
     if users_mod.watch(user, prod["id"]):
-        send_message(chat_id, f"⭐ Watching <b>{alerts.esc(prod['name'])}</b> — "
-                              "drop/ATL alerts will ping you here.")
+        send_message(chat_id, tr(user, "watching", name=alerts.esc(prod["name"])))
     else:
-        send_message(chat_id, f"Already watching <b>{alerts.esc(prod['name'])}</b>.")
+        send_message(chat_id, tr(user, "already_watching", name=alerts.esc(prod["name"])))
 
 
 def _cmd_unwatch(chat_id, products: dict, user: dict, arg: str) -> None:
@@ -982,10 +1071,9 @@ def _cmd_unwatch(chat_id, products: dict, user: dict, arg: str) -> None:
     if prod is None:
         return
     if users_mod.unwatch(user, prod["id"]):
-        send_message(chat_id, f"💔 Unwatched <b>{alerts.esc(prod['name'])}</b> — "
-                              "no more alerts for it.")
+        send_message(chat_id, tr(user, "unwatched", name=alerts.esc(prod["name"])))
     else:
-        send_message(chat_id, f"You weren't watching <b>{alerts.esc(prod['name'])}</b>.")
+        send_message(chat_id, tr(user, "not_watching", name=alerts.esc(prod["name"])))
 
 
 def _cmd_mute(chat_id, products: dict, user: dict, arg: str, on: bool) -> None:
@@ -997,12 +1085,11 @@ def _cmd_mute(chat_id, products: dict, user: dict, arg: str, on: bool) -> None:
         return
     changed = users_mod.mute(user, prod["id"]) if on else users_mod.unmute(user, prod["id"])
     if not changed:
-        send_message(chat_id, "Nothing to change.")
+        send_message(chat_id, tr(user, "nothing_to_change"))
     elif on:
-        send_message(chat_id, f"🔕 Muted <b>{alerts.esc(prod['name'])}</b> — still watched, "
-                              "just silent. /unmute to undo.")
+        send_message(chat_id, tr(user, "muted", name=alerts.esc(prod["name"])))
     else:
-        send_message(chat_id, f"🔔 Unmuted <b>{alerts.esc(prod['name'])}</b>.")
+        send_message(chat_id, tr(user, "unmuted", name=alerts.esc(prod["name"])))
 
 
 def _cmd_remove(chat_id, products: dict, user: dict, ud: dict, arg: str,
@@ -1031,8 +1118,8 @@ def _cmd_remove(chat_id, products: dict, user: dict, ud: dict, arg: str,
     for u in ud.get("users") or []:
         users_mod.unwatch(u, prod["id"])
         users_mod.unmute(u, prod["id"])
-    send_message(chat_id, f"🗑 Removed <b>{alerts.esc(prod['name'])}</b> "
-                          f"({len(prod['offers'])} stores) and its history.")
+    send_message(chat_id, tr(user, "removed", name=alerts.esc(prod["name"]),
+                             stores=f"{len(prod['offers'])} store(s)"))
 
 
 def _send_settings(chat_id, user: dict) -> None:
@@ -1082,18 +1169,21 @@ def handle_callback(cb: dict, products: dict, prices: dict, bot_state: dict,
         if action == "wt":
             if prod["id"] in (user.get("watchlist") or []):
                 users_mod.unwatch(user, prod["id"])
-                send_message(chat_id, f"💔 Unwatched <b>{alerts.esc(prod['name'])}</b>.")
+                send_message(chat_id, tr(user, "unwatched",
+                                         name=alerts.esc(prod["name"])))
             else:
                 users_mod.watch(user, prod["id"])
-                send_message(chat_id, f"⭐ Watching <b>{alerts.esc(prod['name'])}</b>.")
+                send_message(chat_id, tr(user, "watching",
+                                         name=alerts.esc(prod["name"])))
         else:
             if prod["id"] in (user.get("muted") or []):
                 users_mod.unmute(user, prod["id"])
-                send_message(chat_id, f"🔔 Unmuted <b>{alerts.esc(prod['name'])}</b>.")
+                send_message(chat_id, tr(user, "unmuted",
+                                         name=alerts.esc(prod["name"])))
             else:
                 users_mod.mute(user, prod["id"])
-                send_message(chat_id, f"🔕 Muted <b>{alerts.esc(prod['name'])}</b> — "
-                                      "still watched, just silent.")
+                send_message(chat_id, tr(user, "muted",
+                                         name=alerts.esc(prod["name"])))
         return chat_id
 
     if action == "wh":

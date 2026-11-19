@@ -191,6 +191,9 @@ function renderList() {
     .sort((a, b) => b[0] - a[0]).slice(0, 5);
   $app.innerHTML = `
     <input class="searchbox" id="q" placeholder="${esc(t("search"))}" value="${esc(S.query)}">
+    <div class="actions" style="margin:0 0 10px">
+      <button class="btn primary" id="b-add">➕ ${esc(t("openChat"))}</button>
+    </div>
     ${chips ? `<div class="chips">${S.tag
       ? `<span class="chip ${S.tag ? "" : "on"}" data-tag="">✕</span>` : ""}${chips}</div>` : ""}
     ${deals.length ? `<div class="section">${t("deals")}</div>
@@ -198,11 +201,18 @@ function renderList() {
     <div class="section">${t("all")}${items.length ? ` (${items.length})` : ""}</div>
     ${items.map(productCard).join("") || `<div class="loading">${esc(t("all"))}: 0</div>`}
     <footer>refreshed ${esc((S.data.generated || "").slice(0, 16))} ·
-      <a href="https://github.com/Ldigah/cenu-mednieks">GitHub</a></footer>`;
+      <a href="https://github.com/Ldigah/cenu-mednieks">GitHub</a> ·
+      <a href="deals.xml">RSS</a></footer>`;
   const q = document.getElementById("q");
   q.addEventListener("input", () => { S.query = q.value.trim();
     const el = document.getElementById("q"); /* re-render keeps focus via value */ });
   q.addEventListener("change", () => { S.query = q.value.trim(); renderList(); });
+  const addBtn = document.getElementById("b-add");
+  if (addBtn) addBtn.addEventListener("click", () => {
+    const url = "https://t.me/" + (S.data.bot || "cenu_mednieks_bot");
+    if (tg && tg.openTelegramLink) tg.openTelegramLink(url);
+    else window.open(url, "_blank");
+  });
   $app.querySelectorAll("[data-tag]").forEach((c) =>
     c.addEventListener("click", () => { S.tag = c.dataset.tag === "" ? "" : c.dataset.tag;
       renderList(); }));

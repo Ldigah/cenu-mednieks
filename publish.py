@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import shutil
@@ -67,6 +68,54 @@ def build_data(products: dict, prices: dict) -> dict:
             "products": out_products}
 
 
+def build_deals(data: dict) -> dict:
+    """Ranked top drops (Q25): vs 30-day average, newest first in the feed."""
+    deals = []
+    for p in data["products"]:
+        stats = p.get("stats") or {}
+        best = stats.get("best") or {}
+        price, avg = best.get("price"), stats.get("avg30")
+        drop = None
+        if price is not None and avg and avg > 0 and (avg - price) / avg > 0.01:
+            drop = round((avg - price) / avg * 100, 1)
+        is_atl = p.get("above_atl") == 0
+        if drop is None and not is_atl:
+            continue
+        deals.append({"id": p["id"], "name": p["name"], "price": price,
+                      "store": best.get("store"), "url": best.get("url"),
+                      "drop_pct": drop, "is_atl": is_atl,
+                      "above_atl": p.get("above_atl"), "image": p.get("image")})
+    deals.sort(key=lambda d: (d["drop_pct"] if d["drop_pct"] is not None else 0.0,
+                              0 if d["is_atl"] else 1), reverse=True)
+    return {"generated": data["generated"], "deals": deals[:10]}
+
+
+def rss_xml(deals: dict) -> str:
+    """Minimal RSS 2.0 feed of the current deals (Q25 follow-up)."""
+    items = []
+    for d in deals.get("deals") or []:
+        bits = []
+        if d["price"] is not None:
+            bits.append(f"{d['price']:.2f} €" + (f" at {d['store']}" if d["store"] else ""))
+        if d["drop_pct"]:
+            bits.append(f"−{d['drop_pct']:.1f}% vs 30-day avg")
+        if d["is_atl"]:
+            bits.append("🏆 all-time low")
+        title = f"{d['name']} — {' · '.join(bits) or 'deal'}"
+        link = d["url"] or f"https://ldigah.github.io/cenu-mednieks/?p={d['id']}"
+        items.append(f"<item><title>{html.escape(title)}</title>"
+                     f"<link>{html.escape(link)}</link>"
+                     f"<guid isPermaLink=\"false\">{html.escape(d['id'])}</guid>"
+                     f"<pubDate>{deals['generated']}</pubDate></item>")
+    return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<rss version=\"2.0\"><channel>"
+            "<title>Cenu Mednieks — deals</title>"
+            "<link>https://ldigah.github.io/cenu-mednieks/</link>"
+            "<description>Current price drops and all-time lows across "
+            "Latvian, Baltic and EU shops</description>"
+            + "".join(items) + "</channel></rss>")
+
+
 def write_charts(products: dict, prices: dict, out: Path) -> int:
     """90-day best-price chart PNG per product (matplotlib, cached by Pages)."""
     import charts
@@ -107,6 +156,10 @@ def main() -> int:
     data = build_data(products, prices)
     (out / "data.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    deals = build_deals(data)
+    (out / "deals.json").write_text(
+        json.dumps(deals, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "deals.xml").write_text(rss_xml(deals), encoding="utf-8")
     n_charts = write_charts(products, prices, out)
 
     # stale charts for removed products linger harmlessly; clean ones with no product

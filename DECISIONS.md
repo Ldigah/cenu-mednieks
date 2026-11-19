@@ -157,8 +157,12 @@ alerts.py, Worker callbacks). Superseded rows marked. Everything else stands.
   JSON-LD/og:image harvest), derived stats (volatility, best weekday, drops30),
   cf:<key> short-key confirmations (64-byte-safe), i18n started (i18n.py en+lv for
   alerts/digest/intro; /help + command acks English until phase 3).
-- **Phase 3**: full app mutations (add by URL in app), deals.json/RSS, per-user
-  language switch end-to-end.
+- **Phase 3 (implemented 2026-11-19)**: commands registered via setMyCommands every
+  run (default scope + owner chat scope — self-healing; menu button stays the Mini
+  App by Telegram design, commands live behind "/" and the input ☰); full LV
+  translation end-to-end (/help HELP_LV + watch/mute/target/remove/threshold/quota
+  acks via i18n.tr per user prefs); deals.json + deals.xml RSS on Pages (top drops
+  vs 30-day avg + ATL); app "+ Track in chat" handoff button (Q13) + RSS footer link.
 
 ## Deploy checklist for phase 1
 

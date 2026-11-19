@@ -298,6 +298,7 @@ def main() -> int:
                 me = telegram_io.get_me()
                 if me:
                     log.info("telegram bot: @%s (id %s)", me.get("username"), me.get("id"))
+                telegram_io.register_commands(chat_id)  # phase 3: self-healing /setcommands
                 updates = telegram_io.get_updates(int(bot_state.get("update_offset") or 0))
                 log.info("telegram: %d pending update(s)", len(updates))
                 if not updates and not chat_id and not args.local:

@@ -30,6 +30,19 @@ STRINGS: dict[str, dict[str, str]] = {
         "muted": "🔕 Muted <b>{name}</b> — still watched, just silent.",
         "unmuted": "🔔 Unmuted <b>{name}</b>.",
         "budget_line": "💳 ScraperAPI: {credits}/{total} credits this month",
+        "target_set": "🎯 <b>{name}</b>: I'll ping you when the best price drops "
+                      "to ≤ {price}{away}.",
+        "target_already": "🎯 <b>{name}</b>: target {price} set — and it's ALREADY "
+                          "there ({now_p})! Watch your inbox.",
+        "target_cleared": "🎯 Target cleared for <b>{name}</b>.",
+        "no_target": "You had no target on that product.",
+        "removed": "🗑 Removed <b>{name}</b> ({stores}) and its history.",
+        "threshold_set": "🎚 <b>{name}</b>: drop alerts now fire at −{pct}%.",
+        "quota_none": "♾ Unlimited (owner).",
+        "quota_left": "📦 You can add <b>{q}</b> more product(s).",
+        "already_watching": "Already watching <b>{name}</b>.",
+        "not_watching": "You weren't watching <b>{name}</b>.",
+        "nothing_to_change": "Nothing to change.",
     },
     "lv": {
         "intro_title": "👋 Sveiki! Esmu <b>Cenu Mednieks</b> — sekoju cenām un atlaidēm "
@@ -52,6 +65,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "muted": "🔕 <b>{name}</b> apklusināts — vēl sekoju, tikai bez paziņojumiem.",
         "unmuted": "🔔 <b>{name}</b> atkal ar paziņojumiem.",
         "budget_line": "💳 ScraperAPI: {credits}/{total} kredīti šajā mēnesī",
+        "target_set": "🎯 <b>{name}</b>: ziņošu, kad labākā cena kritīsies līdz ≤ {price}{away}.",
+        "target_already": "🎯 <b>{name}</b>: mērķis {price} uzstādīts — un jau ir "
+                          "sasniegts ({now_p})! Skaties paziņojumus.",
+        "target_cleared": "🎯 Mērķis produktam <b>{name}</b> dzēsts.",
+        "no_target": "Šim produktam nebija mērķa.",
+        "removed": "🗑 Dzēsts <b>{name}</b> ({stores}) un tā vēsture.",
+        "threshold_set": "🎚 <b>{name}</b>: cenu krituma paziņojumi tagad −{pct}%.",
+        "quota_none": "♾ Neierobežots (īpašnieks).",
+        "quota_left": "📦 Vari pievienot vēl <b>{q}</b> produkt(us).",
+        "already_watching": "Tu jau seko <b>{name}</b>.",
+        "not_watching": "Tu nesekoji <b>{name}</b>.",
+        "nothing_to_change": "Nekas nemainās.",
     },
 }
 
