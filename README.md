@@ -15,8 +15,12 @@ publishes to GitHub Pages, and an optional Cloudflare Worker answers commands in
   kurpirkt.lv works from residential IPs only (ScraperAPI can't fetch it).
 - **Surfaces**: Telegram chat (owner alerts + commands), Telegram Mini App / public
   page (`index.html` from [publish.py](publish.py)), inline queries via the Worker.
-- **State** lives in a secret GitHub Gist — nothing is committed back. Overlapping
-  runs are safe: advisory gist lock + merge-on-write.
+- **Multi-user** (2026-11-19): approved members share one catalog; each has their own
+  watchlist, quota (10), quiet hours and personal digest. Strangers get a
+  [Request access] button; the owner approves with one tap. See DECISIONS.md.
+- **State** lives in a secret GitHub Gist (`products.json`, `prices.json`,
+  `bot_state.json`, `users.json`) — nothing is committed back. Overlapping runs are
+  safe: advisory gist lock + merge-on-write.
 
 **→ Setup guide: [SETUP.md](SETUP.md)** · Decisions: [DECISIONS.md](DECISIONS.md) ·
 Worker: [worker/README.md](worker/README.md)
@@ -36,9 +40,14 @@ Worker: [worker/README.md](worker/README.md)
 
 ## Commands
 
-`/add <name>` · `/add <url> [name]` · `/add-url <url> [part]` · `/threshold <part> <pct>` ·
-`/list` · `/prices` · `/where <part>` · `/stats [part]` · `/best` · `/chart [part]` ·
-`/remove <part>` · `/check` · `/help`
+`/add <name>` (guided: pick from matches) · `/add <url> [name]` · `/add-url <url> [part]` ·
+`/watch [part]` · `/unwatch <part>` · `/mute <part>` · `/unmute <part>` ·
+`/threshold <part> <pct>` · `/list` · `/prices` · `/where <part>` · `/stats [part]` ·
+`/best` · `/chart [part]` · `/remove <part>` · `/check` · `/settings` · `/requests` ·
+`/quota` · `/whoami` · `/watchall` · `/help`
+
+Alert cards carry buttons: [Where] [Chart] [Watch] [Mute]; destructive actions
+(/remove, threshold changes, /check) ask for confirmation first.
 
 ## Local development
 

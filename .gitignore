@@ -7,3 +7,4 @@ charts-out/
 
 # wrangler local state
 worker/.wrangler/
+worker/tail-output.txt

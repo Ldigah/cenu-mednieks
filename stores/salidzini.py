@@ -64,6 +64,31 @@ class SalidziniAdapter(StoreAdapter):
         blob = f"{offer.get('category', '')} {offer.get('name', '')}"
         return bool(EXCLUDE_CATEGORY_RE.search(blob))
 
+    def candidates(self, html: str, limit: int = 3) -> list[dict]:
+        """Distinct product titles from the AggregateOffer rows of a /search page."""
+        soup = BeautifulSoup(html, "html.parser")
+        rows: list[tuple[str, float]] = []
+        for tag in soup.find_all("script", type="application/ld+json"):
+            raw = tag.string or tag.get_text()
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            for node in parse.iter_nodes(data):
+                agg = node.get("offers")
+                if not isinstance(agg, dict) or not isinstance(agg.get("offers"), list):
+                    continue
+                for off in agg["offers"]:
+                    if not isinstance(off, dict) or self._polluted(off):
+                        continue
+                    p = parse.parse_price(off.get("price"))
+                    name = off.get("name")
+                    if p is not None and name:
+                        rows.append((str(name), p))
+        return self._group_rows(rows, limit)
+
 
 SALIDZINI = SalidziniAdapter(
     domain="salidzini.lv",

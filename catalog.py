@@ -61,6 +61,7 @@ def _normalize_product(prod: dict) -> dict:
         "name": (prod.get("name") or "").strip(),
         "threshold_pct": prod.get("threshold_pct"),
         "added": prod.get("added") or _now_iso(),
+        "added_by": prod.get("added_by"),  # chat id of who /add-ed it (quota, removal rights)
         "atl": prod.get("atl"),          # {"price","date","url","store"} | None
         "last_min": prod.get("last_min"),  # {"price","url","store"} | None
         "offers": uniq,

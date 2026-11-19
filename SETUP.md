@@ -106,19 +106,42 @@ chat) come from the same Worker.
 
 | Command | Effect |
 |---|---|
-| `/add <name>` | track a product on salidzini.lv + kurpirkt.lv + ceno.lv (discovery) |
+| `/add <name>` | guided: I show aggregator matches as buttons, you pick the real product |
 | `/add <url> [name]` | track one specific store page |
 | `/add-url <url> [name-part]` | attach another store (Amazon, direct shop) to a product |
-| `/threshold <part> <pct>` | per-product drop-alert threshold (default 5%) |
-| `/list` `/prices` | catalog / best price per product |
+| `/watch [part]` / `/unwatch <part>` | your watchlist — what pings YOU (⭐ also on alert cards) |
+| `/mute <part>` / `/unmute <part>` | silence one product without unwatching |
+| `/threshold <part> <pct>` | per-product drop-alert threshold (default 5%, asks to confirm) |
+| `/list` `/prices` | catalog / best price per product (+ % above all-time low) |
 | `/where <part>` | all stores + prices for one product |
 | `/stats [part]` `/best` | price statistics / deepest current discounts |
 | `/chart [part]` | price-history PNG (best-price line + per-store + ATL) |
-| `/remove <part>` | stop tracking a product |
-| `/check` | forces a re-scrape on the current run |
+| `/remove <part>` | stop tracking a product (asks to confirm) |
+| `/check` | re-scrape everything on this run (owner, confirms first) |
+| `/settings` | digest on/off + hour, quiet hours, language (button panel) |
+| `/requests` | owner: approve/decline access requests |
+| `/quota` `/whoami` | your remaining product quota / profile |
+| `/watchall` | owner: hear about everything vs watchlist only |
 
-Alerts: best-price drops ≥ threshold, new all-time lows, new/deeper discounts, restocks.
-Price increases are recorded silently. Failures alert at 3 consecutive fails, then every 5th.
+Alerts: best-price drops ≥ threshold, new all-time lows, new/deeper discounts, restocks —
+delivered as rich cards with [Where] [Chart] [Watch] [Mute] buttons, only to users who
+watch that product. Quiet hours (per user, e.g. 23–08) hold alerts until morning.
+Price increases are recorded silently. Failures alert the owner at 3 consecutive fails,
+then every 5th. The digest is personal (your watchlist) at your chosen run hour.
+
+## Multi-user (family & friends)
+
+1. A friend opens the bot → friendly intro → taps **[Request access]** (or just sends
+   `/start`).
+2. You get a card with ✅ Approve / ❌ Decline (or review later via `/requests`).
+3. Approved members share the catalog; they watch what they care about (`/watch`,
+   ⭐ buttons, or the Mini App). Defaults: silent until they watch something, digest on
+   at 21:00 UTC, quota 10 products, 1 run-triggering command per 5 min.
+4. Admin: `/requests` to review, `/watchall` to toggle your watch-all, quota is a
+   per-user field in `users.json` (edit via the gist if ever needed).
+
+BotFather polish (one-time): `/setcommands` with the list from README.md (gives
+autocomplete + descriptions), `/setmenubutton` to point the menu button at the Mini App.
 
 ## Upgrading from the v1 layout (pre-2026-11-19)
 

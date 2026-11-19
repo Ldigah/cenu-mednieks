@@ -64,3 +64,28 @@ def test_merge_products_ignores_v1_strays():
                                         "offers": [{"url": "u", "store": "s", "label": "s"}]}]}
     out = merge_products(theirs, ours)
     assert len(out["products"]) == 1 and out["products"][0]["offers"]
+
+
+def test_merge_bot_state_new_keys():
+    theirs = {"update_offset": 5,
+              "pending_alerts": {"2": [{"text": "a", "kb": None}]},
+              "pending_adds": {"2": {"key": "k1", "query": "x", "candidates": []}},
+              "usage": {"month": "2026-11", "credits": 10, "warned": False}}
+    ours = {"update_offset": 9,
+            "pending_alerts": {"3": [{"text": "b", "kb": None}]},
+            "pending_adds": {},
+            "usage": {"month": "2026-11", "credits": 14, "warned": True}}
+    out = merge_bot_state(theirs, ours)
+    assert out["update_offset"] == 9
+    assert set(out["pending_alerts"]) == {"2", "3"}      # union across runners
+    assert out["pending_adds"]["2"]["key"] == "k1"       # kept when ours is empty
+    assert out["usage"]["credits"] == 14                 # max within the month
+    assert out["usage"]["warned"] is True
+    # month rollover: ours is newer → its (fresh) usage wins outright
+    ours["usage"] = {"month": "2026-12", "credits": 1, "warned": False}
+    out = merge_bot_state(theirs, ours)
+    assert out["usage"]["month"] == "2026-12"
+    # older ours usage loses to theirs
+    ours["usage"] = {"month": "2026-10", "credits": 99, "warned": True}
+    out = merge_bot_state(theirs, ours)
+    assert out["usage"]["month"] == "2026-11"

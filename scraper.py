@@ -28,12 +28,15 @@ import parse
 import state as state_mod
 import stores
 import telegram_io
+import users as users_mod
 from config import (
+    ADD_CANDIDATES_MAX,
     DIGEST_RUN_HOUR_UTC,
     F_BOT,
     F_LOCK,
     F_PRICES,
     F_PRODUCTS,
+    F_USERS,
     FAIL_ALERT_AFTER,
     GIST_ID,
     GIST_TOKEN,
@@ -67,15 +70,34 @@ def _extract_or_diag(ident: str, html_text: str, adapter):
     return ("price not found on page" if ex is None or ex.price is None else None), ex
 
 
-def scrape_offer(url: str, adapter: stores.StoreAdapter):
+def _fetch_html(url: str, adapter: stores.StoreAdapter) -> str:
+    """The same fetch ladder as scrape_offer, but returns raw HTML (guided-add preview)."""
+    if SCRAPERAPI_KEY and adapter.dc_blocked:
+        return fetch.fetch_scraperapi(url, SCRAPERAPI_KEY,
+                                      render=adapter.render_api,
+                                      country=adapter.api_country)
+    if adapter.uses_playwright():
+        return fetch.fetch_playwright(url, adapter.wait_selector)
+    try:
+        return fetch.fetch_requests(url)
+    except fetch.FetchError:
+        if adapter.strategy == "requests+playwright":
+            return fetch.fetch_playwright(url, adapter.wait_selector)
+        raise
+
+
+def scrape_offer(url: str, adapter: stores.StoreAdapter, usage: dict | None = None):
     """Fetch + extract one offer → (error: str | None, extraction | None).
 
     Cloudflare-guarded aggregators go through ScraperAPI in CI (dc_blocked presets);
-    everything else uses the requests → Playwright ladder.
+    everything else uses the requests → Playwright ladder. Each ScraperAPI call
+    costs one credit — counted into bot_state.usage when provided (Q38).
     """
     ident = urlparse(url).hostname or url
     try:
         if SCRAPERAPI_KEY and adapter.dc_blocked:
+            if usage is not None:
+                alerts.bump_usage(usage)
             html_text = fetch.fetch_scraperapi(url, SCRAPERAPI_KEY,
                                                render=adapter.render_api,
                                                country=adapter.api_country)
@@ -104,6 +126,52 @@ def scrape_offer(url: str, adapter: stores.StoreAdapter):
 def _checked_today(st: dict) -> bool:
     last = str(st.get("last_checked") or "")[:10]
     return bool(last) and last == datetime.now(UTC).date().isoformat()
+
+
+def stage_add(chat_id, query: str, user: dict, bot_state: dict) -> None:
+    """Guided /add (Q30): preview aggregator matches as pick buttons before tracking.
+
+    Scrapes the discovery search pages right now (2 credits max), groups the
+    rows into distinct product candidates, and stores everything in
+    bot_state.pending_adds — nothing is tracked until a button is tapped.
+    """
+    found: dict[str, dict] = {}
+    usage = bot_state.setdefault("usage", {})
+    for offer in catalog.discovery_offers(query):
+        adapter = stores.adapter_for(offer["url"])
+        try:
+            html_text = _fetch_html(offer["url"], adapter)
+        except fetch.FetchError as e:
+            log.warning("add-preview %s failed: %s", offer["store"], e)
+            continue
+        if SCRAPERAPI_KEY and adapter.dc_blocked:
+            alerts.bump_usage(usage)
+        for c in adapter.candidates(html_text, limit=ADD_CANDIDATES_MAX):
+            name = (c.get("name") or "").strip()
+            if not name:
+                continue
+            g = found.setdefault(name, {"name": name,
+                                        "min_price": float(c.get("min_price") or 0.0),
+                                        "count": 0})
+            g["count"] += int(c.get("count") or 1)
+            g["min_price"] = min(g["min_price"], float(c.get("min_price") or 0.0))
+    ranked = sorted(found.values(), key=lambda g: (-g["count"], g["min_price"]))
+    ranked = ranked[:ADD_CANDIDATES_MAX]
+    key = f"{catalog.slugify(query)[:20]}.{int(time.time()) % 100000}"
+    bot_state.setdefault("pending_adds", {})[str(chat_id)] = {
+        "key": key, "query": query, "candidates": ranked,
+        "created": now_iso(), "added_by": user.get("chat_id")}
+    if ranked:
+        telegram_io.send_card(chat_id,
+                              f"🔎 Matches for “{alerts.esc(query)}” — tap the real product:",
+                              telegram_io.kb_candidates(key, ranked))
+        log.info("add-preview %s: %d candidate(s)", query, len(ranked))
+    else:
+        telegram_io.send_card(chat_id,
+                              f"Couldn't preview “{alerts.esc(query)}” — search pages "
+                              f"failed. Add as-is and check /list after the run, or "
+                              f"/add-url a specific product page.",
+                              telegram_io.kb_candidates(key, []))
 
 
 def bootstrap_gist() -> int:
@@ -156,6 +224,7 @@ def main() -> int:
     products = catalog.migrate_products(store.read(F_PRODUCTS) or state_mod.seed_products())
     prices = store.read(F_PRICES) or {}
     bot_state = store.read(F_BOT) or {"update_offset": 0}
+    ud = users_mod.ensure(store.read(F_USERS))
     first_run = not prices
 
     # --- 0. State lock (two runners may overlap: scheduled + manual dispatch) ---
@@ -170,24 +239,47 @@ def main() -> int:
             time.sleep(20)
             have_lock = store.acquire_lock(runner_id)
 
+    def notify(product_id: str, events: list[str], keyboard=None) -> None:
+        """Alert routing (Q3/Q4/Q18/Q19): per-user watchlist DMs with action buttons;
+        quiet-hour users get the alert parked until morning."""
+        text = "\n\n".join(events)
+        for u in alerts.recipients(ud, product_id):
+            if alerts.hold_alert(ud, u, text, keyboard, bot_state):
+                continue
+            if keyboard:
+                telegram_io.send_card(u["chat_id"], text, keyboard)
+            else:
+                telegram_io.send_message(u["chat_id"], text)
+
     try:
         # --- 1. Telegram commands (added products get scraped on this very run) ---
-        chat_id = None
+        owner_u = users_mod.owner(ud)
+        if owner_u is None and (TELEGRAM_CHAT_ID or bot_state.get("chat_id")):
+            owner_u = users_mod.migrate_owner(
+                ud, TELEGRAM_CHAT_ID or bot_state.get("chat_id"))
+        chat_id = owner_u.get("chat_id") if owner_u else None
         if not args.local and TELEGRAM_BOT_TOKEN:
-            chat_id = TELEGRAM_CHAT_ID or bot_state.get("chat_id")
             try:
                 me = telegram_io.get_me()
                 if me:
                     log.info("telegram bot: @%s (id %s)", me.get("username"), me.get("id"))
                 updates = telegram_io.get_updates(int(bot_state.get("update_offset") or 0))
                 log.info("telegram: %d pending update(s)", len(updates))
-                if not updates and not chat_id:
+                if not updates and not chat_id and not args.local:
                     log.warning("no /start found — send /start to @%s in Telegram, then re-run",
                                 (me or {}).get("username", "<unknown>"))
                 for u in updates:
                     bot_state["update_offset"] = max(int(bot_state.get("update_offset") or 0),
                                                      u.get("update_id", 0))
-                    telegram_io.handle_update(u, products, prices, bot_state)
+                    try:
+                        if u.get("callback_query"):
+                            telegram_io.handle_callback(u["callback_query"],
+                                                        products, prices, bot_state, ud)
+                        else:
+                            telegram_io.handle_update(u, products, prices, bot_state,
+                                                      ud, add_stager=stage_add)
+                    except Exception as e:  # noqa: BLE001 — one bad update ≠ dead run
+                        log.warning("update processing failed: %s", e)
             except Exception as e:  # noqa: BLE001 — commands must not kill the run
                 log.warning("command processing failed: %s", e)
             # --- 1b. Commands delivered by the Worker inside the dispatch payload ---
@@ -197,13 +289,29 @@ def main() -> int:
                     with open(event_path, encoding="utf-8") as fh:
                         event = json.load(fh)
                     for u in telegram_io.payload_updates(event):
-                        telegram_io.handle_update(u, products, prices, bot_state)
+                        try:
+                            telegram_io.handle_update(u, products, prices, bot_state,
+                                                      ud, add_stager=stage_add)
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("payload update failed: %s", e)
                 except (OSError, ValueError) as e:
                     log.warning("payload command processing failed: %s", e)
-            if not chat_id:
-                chat_id = bot_state.get("chat_id") or TELEGRAM_CHAT_ID
+            chat_id = (users_mod.owner(ud) or {}).get("chat_id") or chat_id
 
-        send = bool(chat_id) and bool(TELEGRAM_BOT_TOKEN) and not args.local
+        # --- 1c. Deliver alerts held over someone's quiet hours (Q19) ---
+        send = bool(TELEGRAM_BOT_TOKEN) and not args.local
+        if send and not args.health:
+            try:
+                for held_chat, items in alerts.flush_held(ud, bot_state).items():
+                    telegram_io.send_message(held_chat, "🌙 <b>Overnight alerts</b>:")
+                    for item in items:
+                        kb = item.get("kb")
+                        if kb:
+                            telegram_io.send_card(held_chat, item.get("text") or "", kb)
+                        else:
+                            telegram_io.send_message(held_chat, item.get("text") or "")
+            except Exception as e:  # noqa: BLE001 — held alerts must not kill the run
+                log.warning("held-alert flush failed: %s", e)
 
         # --- 2. Scrape: product → offers; product-level events from the run's best ---
         ok = failed = 0
@@ -230,18 +338,18 @@ def main() -> int:
                     time.sleep(15)  # same-store spacing — Cloudflare throttles bursts
 
                 entry = catalog.offer_entry(product, offer)
-                err, ex = scrape_offer(url, adapter)
+                err, ex = scrape_offer(url, adapter, bot_state.setdefault("usage", {}))
                 if err is not None or ex is None or ex.price is None:
                     st["fails"] = int(st.get("fails") or 0) + 1
                     failed += 1
                     log.warning("FAIL %s · %s (×%d): %s",
                                 product["id"], offer["store"], st["fails"], err)
                     # alert at 3 consecutive fails, then re-nag every 5th so a dead
-                    # offer never goes permanently quiet
+                    # offer never goes permanently quiet — ops noise, owner only
                     nag = (st["fails"] == FAIL_ALERT_AFTER
                            or (st["fails"] > FAIL_ALERT_AFTER
                                and (st["fails"] - FAIL_ALERT_AFTER) % 5 == 0))
-                    if send and not args.health and nag:
+                    if send and not args.health and nag and chat_id:
                         telegram_io.send_message(
                             chat_id, alerts.failure_alert(entry, st["fails"], err or "?"))
                     results.append((offer, None))
@@ -252,7 +360,7 @@ def main() -> int:
                     if not args.health and send:
                         events = alerts.offer_events(entry, ex, prev)
                         if events:
-                            telegram_io.send_message(chat_id, "\n\n".join(events))
+                            notify(product["id"], events)
                     st.update(price=ex.price, old_price=ex.old_price, in_stock=ex.in_stock,
                               shop=ex.shop, offers=ex.offers, display=ex.display,
                               currency=ex.currency, converted=ex.converted, last_checked=now_iso())
@@ -282,23 +390,40 @@ def main() -> int:
                 product["last_min"] = {"price": best.price, "url": best_offer["url"],
                                        "store": best_offer.get("label") or best_offer["store"]}
                 if events and send and not args.health:
-                    telegram_io.send_message(chat_id, "\n\n".join(events))
+                    # rich card (Q18): Where / Chart / Watch / Mute buttons
+                    notify(product["id"], events, telegram_io.kb_alert(product["id"]))
 
-        # --- 3. Reports ---
+        # --- 3. Reports: per-user personal digests (Q20) + budget (Q38) ---
         hour = datetime.now(UTC).hour
-        want_digest = (args.digest or (hour == DIGEST_RUN_HOUR_UTC)) and not args.no_digest
         if send and not args.health:
-            if first_run:
+            if first_run and chat_id:
                 telegram_io.send_message(
                     chat_id, f"✅ <b>Cenu Mednieks initialized</b> — tracking "
                              f"{len(products['products'])} products ({ok} ok, {failed} failed).")
-            if want_digest and products["products"]:
-                telegram_io.send_message(
-                    chat_id, "\n".join(alerts.digest_lines(products, prices)))
+            all_ids = [p["id"] for p in products["products"]]
+            for u in users_mod.active(ud):
+                prefs = u.get("prefs") or {}
+                if not prefs.get("digest") or args.no_digest or not products["products"]:
+                    continue
+                if not (args.digest
+                        or prefs.get("digest_hour_utc", DIGEST_RUN_HOUR_UTC) == hour):
+                    continue
+                ids = users_mod.effective_ids(u, all_ids)
+                if not ids:
+                    continue
+                lines = alerts.digest_lines(products, prices, ids)
+                if u.get("role") == users_mod.ROLE_OWNER:
+                    budget = alerts.budget_line(bot_state.get("usage") or {})
+                    if budget:
+                        lines.append(budget)
+                telegram_io.send_message(u["chat_id"], "\n".join(lines))
+            warn = alerts.budget_warning(bot_state.setdefault("usage", {}))
+            if warn and chat_id:
+                telegram_io.send_message(chat_id, warn)
         if args.health:
             summary = alerts.health_summary(products, prices)
             print(summary)
-            if send and "⚠️" in summary:
+            if send and "⚠️" in summary and chat_id:
                 telegram_io.send_message(chat_id, summary)
 
         # --- 4. Persist (merged over anything another runner wrote meanwhile) ---
@@ -306,10 +431,12 @@ def main() -> int:
             store.merge_write(F_PRODUCTS, products, state_mod.merge_products)
             store.merge_write(F_PRICES, prices, state_mod.merge_prices)
             store.merge_write(F_BOT, bot_state, state_mod.merge_bot_state)
+            store.merge_write(F_USERS, ud, users_mod.merge_users)
         else:
             store.write(F_PRODUCTS, products)
             store.write(F_PRICES, prices)
             store.write(F_BOT, bot_state)
+            store.write(F_USERS, ud)
     finally:
         if gist and have_lock:
             store.release_lock(runner_id)

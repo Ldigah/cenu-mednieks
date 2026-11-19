@@ -4,13 +4,17 @@ Product-level policy (2026-11-19 rework): the product's best (min) offer drives
 drop alerts (per-product threshold, default 5%) and all-time-low alerts.
 Offer-level events (new/deeper discounts, restocks) are kept per store.
 Price increases are recorded in state but never alerted.
+
+Multi-user additions (the 40 questions, 2026-11-19): per-user routing +
+quiet-hour holds, personal digests, and ScraperAPI budget tracking (Q38).
 """
 from __future__ import annotations
 
 import html
 from datetime import UTC, datetime
 
-from config import DEFAULT_DROP_PCT, DROP_ALERT_MIN_PCT
+import users as users_mod
+from config import DEFAULT_DROP_PCT, DROP_ALERT_MIN_PCT, SCRAPERAPI_MONTHLY_CREDITS, USAGE_WARN_FRACTION
 from parse import Extraction
 
 
@@ -155,11 +159,16 @@ def _delta_7d(st: dict, now: datetime) -> str | None:
     return f" {arrow}{abs(d):.2f} €/7d"
 
 
-def digest_lines(products: dict, prices: dict) -> list[str]:
-    """Enriched daily digest: best store per product, ATL, 7-day delta, fail counts."""
+def digest_lines(products: dict, prices: dict, ids: list[str] | None = None) -> list[str]:
+    """Enriched daily digest: best store per product, ATL, 7-day delta, fail counts.
+
+    ids: optional watchlist filter — personal digests pass the user's product ids (Q20).
+    """
     now = datetime.now(UTC)
     lines = [f"🛒 <b>Daily price summary</b> — {now:%Y-%m-%d} (all times UTC in history)"]
     for prod in products.get("products", []):
+        if ids is not None and prod.get("id") not in ids:
+            continue
         offers = prod.get("offers") or []
         best_offer: dict | None = None
         best_st: dict = {}
@@ -191,8 +200,89 @@ def digest_lines(products: dict, prices: dict) -> list[str]:
             f"<b>{fmt_eur(best)}</b> at {esc(store)}{extra}{conv}{delta}{atl_txt}{fails_txt} "
             f"({n} store{'s' if n != 1 else ''})")
     if len(lines) == 1:
-        lines.append("No products tracked yet — send /add &lt;name&gt;.")
+        lines.append("Nothing to summarize yet — /watch a product or /add one.")
     return lines
+
+
+# ---------------------------------------------------------------------------
+# Multi-user routing + quiet hours (Q3/Q19) and ScraperAPI budget (Q38)
+# ---------------------------------------------------------------------------
+
+def recipients(ud: dict, product_id: str) -> list[dict]:
+    """Active users who should hear about this product right now (watch-aware)."""
+
+    return [u for u in users_mod.active(ud) if users_mod.wants_alert(u, product_id)]
+
+
+def hold_alert(ud: dict, user: dict, text: str, keyboard, bot_state: dict,
+               now: datetime | None = None) -> bool:
+    """Quiet hours (Q19): park the alert in bot_state.pending_alerts for a morning flush.
+
+    Returns True when the alert was held (caller should not send it now).
+    """
+
+    if not users_mod.is_quiet_now(user, now or datetime.now(UTC)):
+        return False
+    pend = bot_state.setdefault("pending_alerts", {})
+    pend.setdefault(str(user["chat_id"]), []).append({"text": text, "kb": keyboard})
+    return True
+
+
+def flush_held(ud: dict, bot_state: dict, now: datetime | None = None) -> dict:
+    """Pending alerts grouped per chat whose quiet window has ended (Q19).
+
+    Held entries are popped from bot_state.pending_alerts and returned as
+    {chat_id: [{"text", "kb"}]} for the caller to deliver with an
+    "🌙 overnight" prefix. Chats still inside their quiet window stay parked.
+    """
+
+    pend = bot_state.get("pending_alerts") or {}
+    now = now or datetime.now(UTC)
+    out: dict = {}
+    for chat_id_s, items in list(pend.items()):
+        u = users_mod.get(ud, int(chat_id_s))
+        if u is None or not users_mod.is_quiet_now(u, now):
+            if items:
+                out[int(chat_id_s)] = items
+            pend.pop(chat_id_s, None)
+    return out
+
+
+def bump_usage(usage: dict, credits: int = 1, now: datetime | None = None) -> dict:
+    """Count ScraperAPI credits into bot_state.usage, rolling over per month (Q38)."""
+    month = (now or datetime.now(UTC)).strftime("%Y-%m")
+    if usage.get("month") != month:
+        usage.clear()
+        usage["month"] = month
+        usage["credits"] = 0
+        usage["warned"] = False
+    usage["credits"] = int(usage.get("credits") or 0) + credits
+    return usage
+
+
+def budget_line(usage: dict) -> str | None:
+    """Digest footer: credit usage this month; None when nothing was spent."""
+    if usage.get("month") != datetime.now(UTC).strftime("%Y-%m"):
+        return None
+    credits = int(usage.get("credits") or 0)
+    if credits <= 0:
+        return None
+    return (f"💳 ScraperAPI: {credits}/{SCRAPERAPI_MONTHLY_CREDITS} credits this month")
+
+
+def budget_warning(usage: dict) -> str | None:
+    """One-time owner ping at 80% of the free tier (Q38)."""
+    if usage.get("month") != datetime.now(UTC).strftime("%Y-%m") or usage.get("warned"):
+        return None
+    credits = int(usage.get("credits") or 0)
+    if credits < SCRAPERAPI_MONTHLY_CREDITS * USAGE_WARN_FRACTION:
+        return None
+    usage["warned"] = True
+    left = SCRAPERAPI_MONTHLY_CREDITS - credits
+    return (f"💳 <b>ScraperAPI budget warning</b>: {credits}/"
+            f"{SCRAPERAPI_MONTHLY_CREDITS} credits used this month "
+            f"({left} left). New products and /search cost extra — "
+            "kurpirkt stays local-only until the reset.")
 
 
 def health_summary(products: dict, prices: dict) -> str:

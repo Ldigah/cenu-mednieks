@@ -206,10 +206,36 @@ def merge_products(theirs: dict | None, ours: dict) -> dict:
 
 
 def merge_bot_state(theirs: dict | None, ours: dict) -> dict:
-    """Offset takes the max (never re-process); chat adoption from ours."""
+    """Offset takes the max (never re-process); chat adoption from ours.
+
+    New in multi-user phase: pending_alerts / pending_adds union per chat,
+    usage takes the higher credit count within the same month (Q38).
+    """
     out = dict(theirs or {})
     out["update_offset"] = max(int((theirs or {}).get("update_offset") or 0),
                                int(ours.get("update_offset") or 0))
     if ours.get("chat_id"):
         out["chat_id"] = ours["chat_id"]
+    for key in ("pending_alerts", "pending_adds"):
+        merged = dict((theirs or {}).get(key) or {})
+        for chat, val in (ours.get(key) or {}).items():
+            if isinstance(val, list) and isinstance(merged.get(chat), list):
+                merged[chat] = merged[chat] + [x for x in val
+                                               if x not in merged[chat]]
+            else:
+                merged[chat] = val
+        if merged:
+            out[key] = merged
+    t_usage = (theirs or {}).get("usage") or {}
+    o_usage = ours.get("usage") or {}
+    if o_usage or t_usage:
+        if (o_usage.get("month") or "") >= (t_usage.get("month") or ""):
+            base = dict(t_usage)
+            base.update({k: v for k, v in o_usage.items() if k != "credits"})
+            base["credits"] = max(int(o_usage.get("credits") or 0),
+                                  int(t_usage.get("credits") or 0)
+                                  if t_usage.get("month") == o_usage.get("month") else 0)
+            out["usage"] = base
+        else:
+            out["usage"] = t_usage
     return out

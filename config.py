@@ -48,6 +48,14 @@ F_PRODUCTS = "products.json"
 F_PRICES = "prices.json"
 F_BOT = "bot_state.json"
 F_LOCK = "lock.json"          # runner lock: {"runner": id, "expires": iso} — see state.py
+F_USERS = "users.json"        # Q36: users/roles/watchlists live in the same secret gist
+
+# ScraperAPI budget (Q38): track credits per run in bot_state.usage, warn at 80%
+SCRAPERAPI_MONTHLY_CREDITS = 1000
+USAGE_WARN_FRACTION = 0.8
+
+# Guided /add (Q30): keep at most this many candidates in a pick-from-matches card
+ADD_CANDIDATES_MAX = 3
 
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")

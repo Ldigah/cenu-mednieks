@@ -93,3 +93,74 @@ rows are marked; everything else stands.
 | R18 | Instant mechanism | Cloudflare Worker (worker/): read-only cmds answered from a 60 s KV cache of the gist; mutating cmds dispatch `command-run` |
 | R19 | Surfaces | Mini App via bot menu button → Pages URL; inline queries answered by the Worker |
 | R20 | Failure alerts | re-nag every 5th fail after the initial 3-strike alert |
+
+---
+
+# Multi-user & UX — the 40 questions (2026-11-19)
+
+Phase-1 implemented same day (users.py, buttons/callbacks in telegram_io.py, routing in
+alerts.py, Worker callbacks). Superseded rows marked. Everything else stands.
+
+| # | Question (short) | Decision |
+|---|---|---|
+| 1 | Who talks to the bot | **Approved users only** (supersedes nothing; strangers get the Q35 funnel) |
+| 2 | Friend adds a product | **One shared catalog** — scraping cost shared |
+| 3 | What alerts whom | **Per-user watchlist** (⭐ watch/unwatch); owner starts with watch-all |
+| 4 | Alert delivery | **Personal DMs only** (no group) |
+| 5 | Join flow | **Owner approves** — [Request access] → Approve/Decline buttons |
+| 6 | Roles | **Owner + member** |
+| 7 | Quota | **Soft cap 10/member** (owner exempt; per-user quota field) |
+| 8 | User data | **Full profile** in users.json (chat id, name, role, watchlist, quota, prefs) |
+| 9 | Mini App scope | **Browse + watch** (mutations stay in chat pipeline) |
+| 10 | App auth | **Telegram initData HMAC** (phase 2 — app build) |
+| 11 | App tech | **Light JS app** (static + app.js + Worker actions; no framework) |
+| 12 | App theme | **Follow Telegram themeParams** |
+| 13 | Add flow in app | **Chat-first handoff** (button pre-fills /add in chat) |
+| 14 | Product detail page | **Full detail card** (chart, stores, ATL, threshold, star, share) |
+| 15 | App action buttons | ⭐ watch, 🔔 mute, 🎚 threshold, 🗑 remove (with confirm) |
+| 16 | Language | **English now, i18n dict ready; LV later** |
+| 17 | New-member defaults | **Silent until they watch something** |
+| 18 | Alert format | **Rich card + buttons** [Where] [Chart] [Watch] [Mute] |
+| 19 | Quiet hours | **Per-user schedule** (off / 23–08 UTC wrap; held alerts flush next run) |
+| 20 | Digest | **Personal, watchlist-only**, at the user's run hour (5/13/21 UTC) |
+| 21 | Target prices | **Yes — alongside thresholds** (phase 2) |
+| 22 | ATL buy signal | **"% above ATL" everywhere** (implemented: /prices, /stats, inline) |
+| 23 | Extra stats | Volatility, best day-of-week, drop frequency (**phase 2**) |
+| 24 | Organize products | **Tags** (#audio; /list filter) (**phase 2**) |
+| 25 | Deals feed | **Ranked top drops** on the web/app (**phase 2**) |
+| 26 | Sharing | **Deep link** t.me/<bot>/<app>?start=<id> (**phase 2, with app**) |
+| 27 | /search | **Yes — one-off sweep + [Track] buttons**, rate-limited (**phase 2**) |
+| 28 | Inline upgrade | **Buttons + image thumbs** (**phase 2**) |
+| 29 | Navigation | **Menu button (Mini App) + rich /help** + BotFather command list |
+| 30 | Guided /add | **Pick from matches** — search-page candidates as buttons (implemented) |
+| 31 | Confirmations | **/remove, threshold changes, /check** (confirmed flag via Worker) |
+| 32 | /settings | **Full per-user panel** (digest, hour, quiet, language) — implemented |
+| 33 | Public page policy | **Public but anonymous** — names/prices only, never user data |
+| 34 | Rate limits | **Quota + 5-min dispatch cooldown** (Worker KV; confirm-callbacks exempt) |
+| 35 | Strangers | **Friendly intro + [Request access]** → pending record + owner ping |
+| 36 | User storage | **users.json in the secret gist** (same merge_write path) |
+| 37 | Worker 401s | **Verified fixed** (gist/GH tokens 200, webhook healthy); added /ping self-test |
+| 38 | Budget | **Track + warn at 80%** of 1,000 credits (bot_state.usage; digest line) |
+| 39 | First | **Multi-user core + chat UX** (this phase) |
+| 40 | Session scope | **Implement phase 1**; phases 2–3 below |
+
+## Roadmap
+
+- **Phase 1 (done 2026-11-19)**: users.json + approval flow, watchlists, per-user
+  alert routing + quiet hours + personal digests, rich alert cards, confirmations,
+  guided /add, /settings, quota, Worker callbacks/cooldown//ping, budget tracking.
+- **Phase 2**: Mini App v2 (light JS, initData auth, watch stars, deals feed, deep
+  links), /search with [Track], target prices, tags, inline buttons+thumbs,
+  derived stats (volatility, best day, drop frequency), LV translation.
+- **Phase 3**: full app mutations (add by URL in app), deals.json/RSS, per-user
+  language switch end-to-end.
+
+## Deploy checklist for phase 1
+
+1. `cd worker && npx wrangler deploy`
+2. Re-run setWebhook with `allowed_updates='["message","inline_query","callback_query"]'`
+   (buttons don't arrive without it).
+3. BotFather: `/setcommands` (list in README) + `/setmenubutton` → Mini App URL.
+4. Push → CI runs pytest/ruff/mypy; the run migrates the owner into users.json
+   automatically (from TELEGRAM_CHAT_ID / the adopted bot_state.chat_id).
+

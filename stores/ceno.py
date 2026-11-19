@@ -59,6 +59,26 @@ class CenoAdapter(StoreAdapter):
             best.offers = int(c) if c.isdigit() else listed
         return self.finalize(best)
 
+    def candidates(self, html: str, limit: int = 3) -> list[dict]:
+        """Distinct product titles from the microdata rows of a /search page."""
+        soup = BeautifulSoup(html, "html.parser")
+        rows: list[tuple[str, float]] = []
+        for li in soup.select('li[itemprop="offers"]'):
+            if "Offer" not in (li.get("itemtype") or ""):
+                continue
+            cat = li.select_one('meta[itemprop="category"]')
+            name_el = li.select_one('span[itemprop="name"]')
+            blob = ((cat.get("content") or "") if cat else "") + " " + \
+                   (name_el.get_text(" ", strip=True) if name_el else "")
+            if EXCLUDE_CATEGORY_RE.search(blob):
+                continue
+            pm = li.select_one('meta[itemprop="price"]')
+            name = name_el.get_text(" ", strip=True) if name_el else None
+            p = parse.parse_price(pm.get("content")) if pm is not None else None
+            if p is not None and name:
+                rows.append((str(name), p))
+        return self._group_rows(rows, limit)
+
 
 CENO = CenoAdapter(
     domain="ceno.lv",

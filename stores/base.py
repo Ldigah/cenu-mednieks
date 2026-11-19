@@ -78,6 +78,29 @@ class StoreAdapter:
     def uses_playwright(self) -> bool:
         return self.strategy == "playwright"
 
+    def candidates(self, html: str, limit: int = 3) -> list[dict]:
+        """Distinct product candidates on a search page (guided /add, Q30).
+
+        Each row: {"name", "min_price", "count"}. Default: none — aggregators
+        with searchable rows override this.
+        """
+        return []
+
+    @staticmethod
+    def _group_rows(rows: list[tuple[str, float]], limit: int) -> list[dict]:
+        """(name, price) rows → distinct candidates sorted by offer count, then price."""
+        grouped: dict[str, dict] = {}
+        for name, price in rows:
+            key = name.strip()
+            if not key:
+                continue
+            g = grouped.setdefault(key, {"name": key, "min_price": price, "count": 0})
+            g["count"] += 1
+            if price < g["min_price"]:
+                g["min_price"] = price
+        ranked = sorted(grouped.values(), key=lambda g: (-g["count"], g["min_price"]))
+        return ranked[:limit]
+
 
 def make_auto_adapter(host: str) -> StoreAdapter:
     """Generic JSON-LD adapter for shops added via /add that have no preset."""
