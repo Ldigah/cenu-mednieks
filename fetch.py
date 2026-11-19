@@ -111,11 +111,25 @@ def _wait_captcha_clear(page, timeout_s: int = 10) -> bool:
 
 
 def _dismiss_bot_wall(page) -> None:
-    """Amazon serves a clickable bot-check interstitial — click through it if present."""
+    """Amazon serves a clickable bot-check interstitial — click through it if present.
+
+    Click the control whose own text matches the wall ("Continue shopping" etc.);
+    the first <a> on such pages is usually the logo and leads nowhere useful.
+    """
     try:
         body = (page.inner_text("body") or "").lower()[:2000]
         if not any(k in body for k in BOT_WALL_PHRASES):
             return
+        for sel in ("input[type=submit]", "button", "a"):
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 10)):
+                el = loc.nth(i)
+                txt = (el.inner_text() or "").strip().lower()
+                if txt and any(p in txt for p in BOT_WALL_PHRASES):
+                    el.click(timeout=3000)
+                    page.wait_for_load_state("domcontentloaded")
+                    return
+        # no labeled control found — old fallback: first submit control
         for sel in ("input[type=submit]", "button", "a"):
             loc = page.locator(sel)
             if loc.count():
