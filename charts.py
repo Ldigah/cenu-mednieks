@@ -1,4 +1,8 @@
-"""Price-history charts for /chart — matplotlib, Agg backend, PNG bytes."""
+"""Price-history charts for /chart — matplotlib, Agg backend, PNG bytes.
+
+Per store: faint lines. Bold black: the product's best price across stores over
+time. Red dashed: the all-time low reference (when provided).
+"""
 from __future__ import annotations
 
 import io
@@ -10,33 +14,65 @@ matplotlib.use("Agg")
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 
-MAX_POINTS = 90  # ~30 days at 3 runs/day
+MAX_POINTS = 270  # ~90 days at 3 runs/day; old points beyond that are dropped
 
 
-def chart_product(product_name: str, entries: list[dict], prices: dict) -> bytes | None:
-    """One PNG with a line per store entry for a single product. None if no history yet."""
-    fig, ax = plt.subplots(figsize=(9, 5), dpi=140)
-    plotted = False
-    for e in entries:
-        st = prices.get(e["url"], {})
-        hist = []
-        for p in st.get("history", []):
-            if p.get("p") is None:
-                continue
-            try:
-                hist.append((datetime.fromisoformat(p["t"]), p["p"]))
-            except ValueError:
-                continue
-        hist = hist[-MAX_POINTS:]
-        if not hist:
+def _series(st: dict) -> list[tuple[datetime, float]]:
+    hist = []
+    for p in st.get("history", []):
+        if p.get("p") is None:
             continue
-        xs, ys = zip(*hist, strict=False)
-        ax.plot(xs, ys, marker="o", markersize=3, linewidth=1.6,
-                label=e.get("label") or e.get("store_label", e["url"]))
-        plotted = True
-    if not plotted:
-        plt.close(fig)
+        try:
+            hist.append((datetime.fromisoformat(p["t"]), p["p"]))
+        except ValueError:
+            continue
+    return hist[-MAX_POINTS:]
+
+
+def chart_product(product_name: str, offers: list[dict], prices: dict,
+                  atl: dict | None = None) -> bytes | None:
+    """One PNG per product: per-store lines + bold best-price line (+ ATL marker).
+
+    `offers` are the product's offer dicts (url + label). None if no history yet.
+    """
+    series: list[tuple[str, list[tuple[datetime, float]]]] = []
+    for o in offers:
+        s = _series(prices.get(o["url"], {}) or {})
+        if s:
+            series.append((o.get("label") or o.get("store") or o["url"], s))
+    if not series:
         return None
+
+    fig, ax = plt.subplots(figsize=(9, 5), dpi=140)
+    for label, pts in series:
+        xs, ys = zip(*pts, strict=False)
+        ax.plot(xs, ys, marker="o", markersize=2.5, linewidth=1.1, alpha=0.55, label=label)
+
+    # bold min-price line: at every timestamp, the cheapest last-known store price
+    all_ts = sorted({t for _, pts in series for (t, _p) in pts})
+
+    def last_before(pts: list[tuple[datetime, float]], t: datetime) -> float | None:
+        cur = None
+        for tt, pp in pts:
+            if tt > t:
+                break
+            cur = pp
+        return cur
+
+    mx: list[datetime] = []
+    my: list[float] = []
+    for t in all_ts:
+        vals = [v for v in (last_before(pts, t) for _, pts in series) if v is not None]
+        if vals:
+            mx.append(t)
+            my.append(min(vals))
+    if mx:
+        ax.plot(mx, my, color="black", linewidth=2.2, label="best price")
+
+    if atl and atl.get("price") is not None:
+        ax.axhline(atl["price"], color="red", linestyle="--", linewidth=1.2,
+                   label=f"all-time low {atl['price']:.2f} €")
+
     ax.set_title(product_name)
     ax.set_ylabel("€")
     ax.grid(alpha=0.3)
@@ -50,16 +86,13 @@ def chart_product(product_name: str, entries: list[dict], prices: dict) -> bytes
     return buf.getvalue()
 
 
-def chart_all(products: list[dict], prices: dict, limit: int = 4) -> list[tuple[str, bytes]]:
-    """Charts grouped by product name — at most `limit` PNGs."""
-    groups: dict[str, list[dict]] = {}
-    for e in products:
-        groups.setdefault(e["name"] or e["id"], []).append(e)
+def chart_all(products: dict, prices: dict, limit: int = 4) -> list[tuple[str, bytes]]:
+    """Charts per product — at most `limit` PNGs."""
     out: list[tuple[str, bytes]] = []
-    for name, entries in groups.items():
+    for prod in products.get("products", []):
         if len(out) >= limit:
             break
-        png = chart_product(name, entries, prices)
+        png = chart_product(prod["name"] or prod["id"], prod["offers"], prices, prod.get("atl"))
         if png:
-            out.append((name, png))
+            out.append((prod["name"] or prod["id"], png))
     return out

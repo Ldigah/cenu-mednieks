@@ -1,0 +1,22 @@
+name = "cenu-mednieks-bot"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+# Telegram webhook receiver: answers read-only commands instantly from the gist
+# state (60 s KV cache) and triggers full GitHub Actions runs for mutating
+# commands (/add, /remove, /threshold, /chart, /check) via repository_dispatch.
+#
+# Setup (see worker/README.md):
+#   npx wrangler kv namespace create CACHE     -> put the id below
+#   npx wrangler secret put GIST_TOKEN         (PAT with gist scope)
+#   npx wrangler secret put GH_TOKEN           (PAT with repo scope, for dispatches)
+#   npx wrangler secret put WEBHOOK_SECRET     (random string, also sent to Telegram)
+#   npx wrangler deploy
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+GIST_ID = "REPLACE_WITH_GIST_ID"
+REPO = "Ldigah/cenu-mednieks"

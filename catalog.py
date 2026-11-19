@@ -185,3 +185,45 @@ def best_state(product: dict, prices: dict) -> tuple[dict | None, dict | None]:
                               or p < best_st.get("price")):
             best_o, best_st = o, st
     return best_o, best_st
+
+
+def product_stats(product: dict, prices: dict, now: datetime | None = None) -> dict:
+    """Derived per-product stats for /stats, /best and the web snapshot.
+
+    - best: current cheapest offer (price/store/url)
+    - atl: stored all-time low (set by alerts.atl_update)
+    - min7 / min30: cheapest single observation in the window (across all offers)
+    - avg30: mean of all observations in the last 30 days (runs-weighted)
+    """
+    best_offer, best_st = best_state(product, prices)
+    ts_now = (now or datetime.now(UTC)).timestamp()
+    pts: list[tuple[float, float]] = []
+    for o in product.get("offers") or []:
+        for h in (prices.get(o["url"]) or {}).get("history") or []:
+            if h.get("p") is None:
+                continue
+            try:
+                ts = datetime.fromisoformat(h["t"]).timestamp()
+            except ValueError:
+                continue
+            pts.append((ts, h["p"]))
+    pts.sort()
+
+    def window(op, seconds: int) -> float | None:
+        vals = [p for t, p in pts if t >= ts_now - seconds]
+        return op(vals) if vals else None
+
+    def mean(vals: list[float]) -> float:
+        return round(sum(vals) / len(vals), 2)
+
+    store = (best_offer or {}).get("label") or (best_offer or {}).get("store")
+    return {
+        "best": {"price": best_st.get("price") if best_st else None,
+                 "store": store, "url": (best_offer or {}).get("url")},
+        "atl": product.get("atl"),
+        "min7": window(min, 7 * 86400),
+        "min30": window(min, 30 * 86400),
+        "avg30": window(mean, 30 * 86400),
+        "points": len(pts),
+        "stores": len(product.get("offers") or []),
+    }

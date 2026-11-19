@@ -81,6 +81,8 @@ HELP = (
     "/list — tracked products\n"
     "/prices — best price per product\n"
     "/where &lt;name-part&gt; — all stores + prices for a product\n"
+    "/stats [name-part] — price statistics (best, ATL, min7/30, avg30)\n"
+    "/best — products ranked by discount depth vs 30-day average\n"
     "/threshold &lt;name-part&gt; &lt;pct&gt; — drop-alert threshold (default 5%)\n"
     "/chart [name-part] — price-history chart\n"
     "/remove &lt;name-part&gt; — stop tracking\n"
@@ -214,13 +216,60 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict) -
             if sent >= 3:
                 send_message(chat_id, "(more charts omitted — narrow the name)")
                 break
-            png = charts.chart_product(prod["name"] or prod["id"], prod["offers"], prices)
+            png = charts.chart_product(prod["name"] or prod["id"], prod["offers"], prices,
+                                       prod.get("atl"))
             if png:
                 send_photo(chat_id, png,
                            caption=f"📈 {alerts.esc(prod['name'] or prod['id'])} — price history")
                 sent += 1
         if sent == 0:
             send_message(chat_id, "No price history yet — charts appear after the first run.")
+
+    elif cmd == "stats":
+        matches = catalog.find_products(products, arg) if arg else products["products"]
+        if not matches:
+            send_message(chat_id, f"Nothing matches “{alerts.esc(arg)}”.")
+            return chat_id
+        for prod in matches[:3]:
+            s = catalog.product_stats(prod, prices)
+            lines = [f"📊 <b>{alerts.esc(prod['name'] or prod['id'])}</b> "
+                     f"({s['stores']} stores, {s['points']} observations)"]
+            b = s["best"]
+            if b["price"] is not None:
+                lines.append(f"• Best now: <b>{alerts.fmt_eur(b['price'])}</b> at "
+                             f"{alerts.esc(b['store'] or '?')}")
+            atl = s["atl"]
+            if atl and atl.get("price") is not None:
+                lines.append(f"• All-time low: {alerts.fmt_eur(atl['price'])} "
+                             f"({str(atl.get('date', ''))[:10]} at {alerts.esc(atl.get('store') or '?')})")
+            if s["min7"] is not None:
+                lines.append(f"• 7-day min: {alerts.fmt_eur(s['min7'])} · "
+                             f"30-day min: {alerts.fmt_eur(s['min30'])}")
+            if s["avg30"] is not None:
+                lines.append(f"• 30-day avg: {alerts.fmt_eur(s['avg30'])}")
+            send_message(chat_id, "\n".join(lines))
+
+    elif cmd == "best":
+        scored = []
+        for prod in products["products"]:
+            s = catalog.product_stats(prod, prices)
+            bp, avg = s["best"]["price"], s["avg30"]
+            if bp is not None and avg is not None and avg > 0:
+                depth = (avg - bp) / avg * 100
+                scored.append((depth, prod, s))
+        if not scored:
+            send_message(chat_id, "Not enough history yet — /best works after ~a day of runs.")
+            return chat_id
+        scored.sort(key=lambda x: x[0], reverse=True)
+        lines = ["🔥 <b>Deepest current discounts</b> (vs 30-day average)"]
+        for depth, prod, s in scored[:5]:
+            atl = s["atl"]
+            atl_txt = f" · ATL {alerts.fmt_eur(atl['price'])}" if atl and atl.get("price") else ""
+            lines.append(f"• <b>{alerts.esc(prod['name'] or prod['id'])}</b>: "
+                         f"<b>{alerts.fmt_eur(s['best']['price'])}</b> at "
+                         f"{alerts.esc(s['best']['store'] or '?')} "
+                         f"(−{depth:.1f}% vs avg){atl_txt}")
+        send_message(chat_id, "\n".join(lines))
 
     elif cmd == "check":
         send_message(chat_id, "🔎 Re-scraping everything on this run — results arrive shortly.")

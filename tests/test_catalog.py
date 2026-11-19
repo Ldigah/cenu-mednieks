@@ -87,3 +87,21 @@ def test_offer_entry_shape():
     assert e["name"] == "JBL Flip 7"
     assert e["store_label"] == "A.lv"
     assert e["url"] == "https://x/1"
+
+
+def test_product_stats_windows():
+    from datetime import UTC, datetime, timedelta
+    o1 = {"url": "1", "store": "a", "label": "a"}
+    prod = catalog.make_product("x", [o1])
+    now = datetime.now(UTC)
+    pts = [(now - timedelta(days=d), 100.0 + d) for d in range(40)]  # older = higher
+    prices = {"1": {"price": 100.0, "history": [
+        {"t": t.isoformat(), "p": p} for t, p in pts]}}
+    s = catalog.product_stats(prod, prices, now=now)
+    assert s["best"]["price"] == 100.0
+    assert s["min7"] == 100.0                      # newest points are cheapest
+    assert s["min30"] == 100.0
+    assert s["avg30"] and 100.0 < s["avg30"] < 140.0
+    assert s["points"] == 40 and s["stores"] == 1
+    empty = catalog.product_stats(catalog.make_product("y", [o1]), {"1": {}}, now=now)
+    assert empty["min7"] is None and empty["best"]["price"] is None

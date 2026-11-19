@@ -5,7 +5,9 @@ on:
     # 05:00, 13:00, 21:00 UTC = 07:00, 15:00, 23:00 Latvia time (winter, EET=UTC+2).
     # GitHub cron has no DST: in summer these land an hour earlier local time.
     - cron: '0 5,13,21 * * *'
-  workflow_dispatch: {}   # manual trigger from the Actions tab (instant command processing)
+  workflow_dispatch: {}     # manual trigger from the Actions tab (instant command processing)
+  repository_dispatch:      # triggered by the Cloudflare Worker on /add /remove /check …
+    types: [command-run]
 
 permissions:
   contents: read          # checkout needs read access; nothing is ever written — state lives in a private gist
