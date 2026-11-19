@@ -20,6 +20,9 @@
 
 const API = "https://api.telegram.org";
 const READ_ONLY = new Set(["start", "help", "list", "prices", "where", "stats", "best", "tags"]);
+// Instant users.json commands (phase-1/3 parity with the Python bot): no run needed
+const INSTANT_USER = new Set(["watch", "unwatch", "mute", "unmute",
+                              "settings", "quota", "whoami", "requests"]);
 // Mutating chat commands (dispatch a run; CI enforces quota/permissions again)
 const MUTATING = new Set(["add", "add_url", "threshold", "remove", "chart", "check", "pick",
                           "search", "target", "tag", "untag"]);
@@ -83,6 +86,10 @@ async function handle(update, env) {
       return send(chatId, await selfTest(env), env);
     }
 
+    if (INSTANT_USER.has(cmd)) {
+      return handleInstantUser(env, member, cmd, arg, chatId);
+    }
+
     if (MUTATING.has(cmd)) {
       const gate = await gateMutation(env, member, cmd, arg, state_of(await getState(env)));
       if (gate) return send(chatId, gate, env);
@@ -95,6 +102,140 @@ async function handle(update, env) {
   } catch (e) {
     console.error("handle failed:", e);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Instant users.json commands — parity with the Python bot (webhook mode never
+// reaches CI's getUpdates, so these must be answerable here)
+// ---------------------------------------------------------------------------
+
+async function handleInstantUser(env, member, cmd, arg, chatId) {
+  const state = state_of(await getState(env));
+  const esc = escapeHtml;
+  const fmt = (v) => (v == null ? "n/a" : `${Number(v).toFixed(2)} €`);
+
+  if (cmd === "whoami") {
+    const p = member.prefs || {};
+    return send(chatId, [
+      `👤 ${esc(member.name || String(member.chat_id))}` +
+        (member.username ? ` (@${esc(member.username)})` : "") +
+        ` — ${member.role}`,
+      `• Watchlist: ${(member.watchlist || []).length} product(s)` +
+        (member.watch_all ? " + everything" : ""),
+      `• Muted: ${(member.muted || []).length}`,
+      `• Quota: ${quotaLeft(member, state.products) ?? "unlimited"}`,
+      `• Digest: ${p.digest ? "on" : "off"} at ${p.digest_hour_utc} UTC · ` +
+        `quiet: ${p.quiet || "off"} · lang: ${p.lang || "en"}`,
+    ].join("\n"), env);
+  }
+
+  if (cmd === "quota") {
+    const q = quotaLeft(member, state.products);
+    return send(chatId, q === null ? "♾ Unlimited (owner)."
+      : `📦 You can add <b>${q}</b> more product(s).`, env);
+  }
+
+  if (cmd === "settings") {
+    const p = member.prefs || {};
+    return tg("sendMessage", {
+      chat_id: chatId,
+      text: `⚙️ Settings — ${esc(member.name || String(member.chat_id))}\n` +
+        "Tap a row to change.\n" +
+        `• Digest: ${p.digest ? "on" : "off"} at ${p.digest_hour_utc} UTC\n` +
+        `• Quiet hours: ${p.quiet || "off"}\n` +
+        `• Language: ${p.lang || "en"}`,
+      reply_markup: { inline_keyboard: [
+        [{ text: `📰 Digest: ${p.digest ? "on" : "off"}`, callback_data: "st:digest" }],
+        [{ text: `🕐 Digest hour: ${p.digest_hour_utc} UTC`, callback_data: "st:hour" }],
+        [{ text: `🌙 Quiet hours: ${p.quiet || "off"}`, callback_data: "st:quiet" }],
+        [{ text: `🌐 Language: ${p.lang || "en"}`, callback_data: "st:lang" }],
+      ] },
+    }, env);
+  }
+
+  if (cmd === "requests") {
+    if (member.role !== "owner") return send(chatId, "⛔ Owner only.", env);
+    const pend = ((state.users && state.users.users) || [])
+      .filter((u) => u.status === "pending");
+    if (!pend.length) return send(chatId, "No pending access requests.", env);
+    for (const u of pend) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `🙋 <b>${esc(u.name || String(u.chat_id))}</b>` +
+          (u.username ? ` (@${esc(u.username)})` : "") + " requests access",
+        reply_markup: { inline_keyboard: [[
+          { text: "✅ Approve", callback_data: `apr:${u.chat_id}` },
+          { text: "❌ Decline", callback_data: `dec:${u.chat_id}` },
+        ]] },
+      }, env);
+    }
+    return;
+  }
+
+  // watch / unwatch / mute / unmute
+  const listName = (cmd === "watch" || cmd === "unwatch") ? "watchlist" : "muted";
+  if (!arg.trim()) {
+    if (cmd === "watch") {
+      const names = (member.watchlist || [])
+        .map((id) => productName(state, id)).filter(Boolean);
+      const head = member.watch_all
+        ? "⭐ You hear about everything (owner watch-all).\n"
+        : "⭐ Your watchlist\n";
+      return send(chatId, head + (names.map((n) => "• " + esc(n)).join("\n")
+        || "Empty — /watch <name-part> or tap ⭐ on any alert card."), env);
+    }
+    return send(chatId, `Usage: /${cmd} <name-part>`, env);
+  }
+
+  const matches = findProductsAll(state, arg);
+  if (!matches.length) return send(chatId, `Nothing matches "${arg}".`, env);
+  if (matches.length > 1) {
+    return send(chatId, "Multiple products match — be more specific:\n" +
+      matches.slice(0, 10).map((p) => "• " + esc(p.name || p.id)).join("\n"), env);
+  }
+  const prod = matches[0];
+  const adding = cmd === "watch" || cmd === "mute";
+  const already = (member[listName] || []).includes(prod.id);
+  if (adding === already) {
+    return send(chatId, adding
+      ? `Already ${cmd === "watch" ? "watching" : "muted"} ${esc(prod.name)}.`
+      : `You weren't ${cmd === "watch" ? "watching" : "muted"} ${esc(prod.name)}.`, env);
+  }
+  let reply = "";
+  await updateUsers(env, (ud) => {
+    const u = (ud.users || []).find((x) => String(x.chat_id) === String(member.chat_id));
+    if (!u) return ud;
+    const list = u[listName] = u[listName] || [];
+    const i = list.indexOf(prod.id);
+    if (i >= 0) list.splice(i, 1);
+    else list.push(prod.id);
+    if (cmd === "watch" && adding) {  // watching clears a mute (Python parity)
+      const m = u.muted || [];
+      const j = m.indexOf(prod.id);
+      if (j >= 0) m.splice(j, 1);
+    }
+    reply = adding
+      ? (cmd === "watch" ? `⭐ Watching ${esc(prod.name)} — alerts will ping you here.`
+                         : `🔕 Muted ${esc(prod.name)} — still watched, just silent.`)
+      : (cmd === "unwatch" ? `💔 Unwatched ${esc(prod.name)}.`
+                           : `🔔 Unmuted ${esc(prod.name)}.`);
+    return ud;
+  });
+  return send(chatId, reply || "Saved.", env);
+}
+
+function productName(state, pid) {
+  const p = (state.products.products || []).find((x) => x.id === pid);
+  return p ? (p.name || p.id) : null;
+}
+
+function findProductsAll(state, arg) {
+  const part = (arg || "").toLowerCase().trim().replace(/^#/, "");
+  const prods = (state.products && state.products.products) || [];
+  if (!part) return [];
+  return prods.filter((p) => `${p.id} ${p.name}`.toLowerCase().includes(part)
+    || (p.tags || []).some((x) => x === part)
+    || (p.offers || []).some((o) => o.url.toLowerCase().includes(part)));
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +708,9 @@ function answerReadOnly(cmd, arg, { products, prices }) {
       "🤖 Cenu Mednieks — price tracker",
       "",
       "Instant here: /list /prices /where /stats /best /tags",
-      "Run-triggered (~2–5 min): /add /add_url /threshold /target /remove /chart /check /search",
+      "/watch /unwatch /mute /unmute /settings /quota /whoami /requests",
+      "Run-triggered (~2–5 min): /add /add_url /threshold /target /remove",
+      "/chart /check /search",
       "",
       "Alerts on drops, all-time lows, discounts, restocks and target hits —",
       "only for the products on your watchlist (/watch). Owner approves access.",

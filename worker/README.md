@@ -48,8 +48,12 @@ approvals/watch/mute/settings).
 With a webhook active, Telegram forbids `getUpdates` (HTTP 409) — so CI cannot
 poll for commands. The flow is therefore:
 
-- **Read-only** (`/prices /where /stats /best /list /ping`): answered by the
+- **Read-only** (`/prices /where /stats /best /list /tags /ping`): answered by the
   Worker instantly from the cached gist.
+- **Instant user commands** (`/watch /unwatch /mute /unmute /settings /quota
+  /whoami /requests`): also answered instantly — direct users.json writes or
+  member-record reads (parity with the Python bot; webhook mode never reaches
+  CI's getUpdates, so the Worker must handle everything).
 - **Mutating** (`/add /add-url /threshold /remove /chart /check /pick`): the
   Worker gates them (membership via users.json, quota, 5-min KV cooldown for
   members, /check owner-only) and dispatches `command-run` **with the command
