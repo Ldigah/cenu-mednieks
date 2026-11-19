@@ -253,10 +253,9 @@ def main() -> int:
 
     try:
         # --- 1. Telegram commands (added products get scraped on this very run) ---
-        owner_u = users_mod.owner(ud)
-        if owner_u is None and (TELEGRAM_CHAT_ID or bot_state.get("chat_id")):
-            owner_u = users_mod.migrate_owner(
-                ud, TELEGRAM_CHAT_ID or bot_state.get("chat_id"))
+        if users_mod.owner(ud) is None and (TELEGRAM_CHAT_ID or bot_state.get("chat_id")):
+            users_mod.migrate_owner(ud, TELEGRAM_CHAT_ID or bot_state.get("chat_id"))
+        owner_u = users_mod.owner(ud)  # migrate_owner returns the users dict, not the record
         chat_id = owner_u.get("chat_id") if owner_u else None
         if not args.local and TELEGRAM_BOT_TOKEN:
             try:
