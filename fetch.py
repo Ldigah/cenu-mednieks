@@ -81,15 +81,18 @@ def fetch_scraperapi(url: str, api_key: str, render: bool = False) -> str:
     """Fetch via ScraperAPI (rotating proxy pool) — for Cloudflare-guarded
     aggregators that challenge datacenter IPs (CI).
 
-    Credit cost: 1 credit plain, 10 with render=true. Their API queues slow
-    sites, so plain fetches get 60 s (vs 20 s direct) and rendered 90 s. Only
-    network timeouts retry once — a timed-out call is unlikely to have consumed
-    a credit; HTTP/block responses raise immediately.
+    Credit cost: 1 credit plain, 10 with render=true. Rendered fetches add
+    wait=8000 so CF managed challenges (kurpirkt clears ≤10 s in a real
+    browser) have time to resolve. Their API queues slow sites, so plain
+    fetches get 60 s and rendered 100 s. Retries: once on pure network
+    timeouts and once on their 5xx (render-worker hiccups — seen as HTTP 500);
+    4xx/anti-bot responses raise immediately.
     """
     params: dict = {"api_key": api_key, "url": url}
     if render:
         params["render"] = "true"
-    timeout = 90 if render else 60
+        params["wait"] = "8000"
+    timeout = 100 if render else 60
     last: FetchError | None = None
     for _attempt in range(2):
         try:
@@ -101,9 +104,13 @@ def fetch_scraperapi(url: str, api_key: str, render: bool = False) -> str:
         _force_utf8(r)
         if r.status_code == 200 and not _looks_blocked(r.text):
             return r.text
+        if r.status_code >= 500 and _attempt == 0:
+            last = FetchError(f"scraperapi HTTP {r.status_code}", r.status_code)
+            time.sleep(10)
+            continue
         blocked = " (anti-bot page)" if _looks_blocked(r.text) else ""
         raise FetchError(f"scraperapi HTTP {r.status_code}{blocked}", r.status_code)
-    assert last is not None  # both attempts timed out
+    assert last is not None  # both attempts failed with a retryable error
     raise last
 
 
