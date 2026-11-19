@@ -1,0 +1,22 @@
+npm notice run npx
+npm notice run ^"wrangler^" tail --format pretty
+
+ ⛅️ wrangler 4.165.0
+────────────────────
+Successfully created tail, expires at 2026-11-19T21:14:06Z
+Connected to cenu-mednieks-bot, waiting for logs...
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:17:04
+  (error) gist fetch failed: 401
+  (error) telegram sendMessage failed: {"ok":false,"error_code":404,"description":"Not Found"}
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:17:33
+  (error) dispatch failed: 401 {\u000d
+  "message": "Bad credentials",\u000d
+  "documentation_url": "https://docs.github.com/rest",\u000d
+  "status": "401"\u000d
+}
+  (error) telegram sendMessage failed: {"ok":false,"error_code":404,"description":"Not Found"}
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:23:22
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:23:28
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:24:36
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:24:48
+POST https://cenu-mednieks-bot.ldigah.workers.dev/ - Ok @ 19/11/2026, 17:24:58
