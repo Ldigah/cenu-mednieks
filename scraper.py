@@ -170,7 +170,7 @@ def stage_add(chat_id, query: str, user: dict, bot_state: dict) -> None:
         telegram_io.send_card(chat_id,
                               f"Couldn't preview “{alerts.esc(query)}” — search pages "
                               f"failed. Add as-is and check /list after the run, or "
-                              f"/add-url a specific product page.",
+                              f"/add_url a specific product page.",
                               telegram_io.kb_candidates(key, []))
 
 

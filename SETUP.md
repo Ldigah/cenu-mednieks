@@ -108,7 +108,7 @@ chat) come from the same Worker.
 |---|---|
 | `/add <name>` | guided: I show aggregator matches as buttons, you pick the real product |
 | `/add <url> [name]` | track one specific store page |
-| `/add-url <url> [name-part]` | attach another store (Amazon, direct shop) to a product |
+| `/add_url <url> [name-part]` | attach another store (Amazon, direct shop) to a product |
 | `/watch [part]` / `/unwatch <part>` | your watchlist — what pings YOU (⭐ also on alert cards) |
 | `/mute <part>` / `/unmute <part>` | silence one product without unwatching |
 | `/threshold <part> <pct>` | per-product drop-alert threshold (default 5%, asks to confirm) |

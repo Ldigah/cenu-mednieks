@@ -351,7 +351,7 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict,
         _cmd_pick(chat_id, products, bot_state, user, ud, arg, confirmed)
         return chat_id
 
-    if cmd == "add-url":
+    if cmd == "add_url":
         _cmd_add_url(chat_id, products, user, ud, arg)
         return chat_id
 
@@ -609,7 +609,7 @@ def _create_search_product(chat_id, products: dict, user: dict, query: str) -> N
     send_message(chat_id, f"➕ Tracking <b>{alerts.esc(prod['name'])}</b> across "
                           f"{alerts.esc(stores_txt)} — first results this run.\n"
                           f"Attach more stores (Amazon, direct shops) with "
-                          f"/add-url &lt;url&gt; {alerts.esc(prod['id'])}.")
+                          f"/add_url &lt;url&gt; {alerts.esc(prod['id'])}.")
 
 
 def _cmd_add(chat_id, products: dict, bot_state: dict, user: dict, ud: dict,
@@ -688,10 +688,10 @@ def _cmd_pick(chat_id, products: dict, bot_state: dict, user: dict, ud: dict,
 
 
 def _cmd_add_url(chat_id, products: dict, user: dict, ud: dict, arg: str) -> None:
-    """/add-url <url> [name-part] — attach a store offer to an existing (or new) product."""
+    """/add_url <url> [name-part] — attach a store offer to an existing (or new) product."""
     parts = arg.split(maxsplit=1)
     if not parts:
-        send_message(chat_id, "Usage: /add-url &lt;product-url&gt; [name-part]")
+        send_message(chat_id, "Usage: /add_url &lt;product-url&gt; [name-part]")
         return
     url = parts[0]
     part = parts[1].strip() if len(parts) > 1 else ""

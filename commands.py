@@ -8,11 +8,15 @@ import re
 
 
 def parse_command(text: str):
-    """'/add@MyBot https://… nice stand' → ('add', 'https://… nice stand'); else None."""
+    """'/add@MyBot https://… nice stand' → ('add', 'https://… nice stand'); else None.
+
+    Hyphens normalize to underscores so BotFather-registered names (a-z, 0-9, _
+    only) match: /add-url and /add_url both arrive as 'add_url'.
+    """
     if not text or not text.startswith("/"):
         return None
     parts = text.split(maxsplit=1)
-    cmd = parts[0][1:].split("@")[0].lower()
+    cmd = parts[0][1:].split("@")[0].lower().replace("-", "_")
     if not cmd:
         return None
     arg = parts[1].strip() if len(parts) > 1 else ""

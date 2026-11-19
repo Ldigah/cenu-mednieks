@@ -21,7 +21,7 @@
 const API = "https://api.telegram.org";
 const READ_ONLY = new Set(["start", "help", "list", "prices", "where", "stats", "best"]);
 // Mutating chat commands (dispatch a run; CI enforces quota/permissions again)
-const MUTATING = new Set(["add", "add-url", "threshold", "remove", "chart", "check", "pick"]);
+const MUTATING = new Set(["add", "add_url", "threshold", "remove", "chart", "check", "pick"]);
 const COOLDOWN_S = 300; // Q34: one run-triggering command per member per 5 min
 
 export default {
@@ -52,7 +52,7 @@ async function handle(update, env) {
     const msg = update.message;
     if (!msg || !msg.text || !msg.text.startsWith("/")) return;
     const [rawCmd, ...rest] = msg.text.slice(1).split(" ");
-    const cmd = rawCmd.split("@")[0].toLowerCase();
+    const cmd = rawCmd.split("@")[0].toLowerCase().replace(/-/g, "_");
     const arg = rest.join(" ").trim();
     const chatId = msg.chat && msg.chat.id;
     if (!chatId) return;
@@ -130,7 +130,7 @@ async function gateMutation(env, member, cmd, arg, state) {
   }
   if (cmd === "check") return member.role === "owner"
     ? null : "⛔ Owner only — /check triggers a full paid run.";
-  if (cmd === "add" || cmd === "add-url") {
+  if (cmd === "add" || cmd === "add_url") {
     const q = quotaLeft(member, state.products);
     if (q !== null && q <= 0) return "📦 Quota reached — ask the owner to raise it.";
     return null;

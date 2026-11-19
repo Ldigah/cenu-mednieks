@@ -5,7 +5,7 @@ free tier: GitHub Actions scrapes 3×/day, alerts land in Telegram, a public pri
 publishes to GitHub Pages, and an optional Cloudflare Worker answers commands instantly.
 
 - **Product-centric**: `/add JBL Flip 7` tracks the product across salidzini.lv,
-  kurpirkt.lv and ceno.lv at once; attach Amazon or direct shops with `/add-url`.
+  kurpirkt.lv and ceno.lv at once; attach Amazon or direct shops with `/add_url`.
 - **Deal alerts**: best-price drops (per-product threshold, default 5%), all-time lows,
   new/deeper discounts, restocks. Increases recorded silently. Daily digest at 23:00
   Latvia time with best store, ATL and 7-day delta per product.
@@ -40,7 +40,7 @@ Worker: [worker/README.md](worker/README.md)
 
 ## Commands
 
-`/add <name>` (guided: pick from matches) · `/add <url> [name]` · `/add-url <url> [part]` ·
+`/add <name>` (guided: pick from matches) · `/add <url> [name]` · `/add_url <url> [part]` ·
 `/watch [part]` · `/unwatch <part>` · `/mute <part>` · `/unmute <part>` ·
 `/threshold <part> <pct>` · `/list` · `/prices` · `/where <part>` · `/stats [part]` ·
 `/best` · `/chart [part]` · `/remove <part>` · `/check` · `/settings` · `/requests` ·
