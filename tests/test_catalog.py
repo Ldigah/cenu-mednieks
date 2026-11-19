@@ -53,7 +53,7 @@ def test_make_offer():
 
 def test_discovery_offers():
     offers = catalog.discovery_offers("JBL Flip 7")
-    assert [o["store"] for o in offers] == ["salidzini.lv", "kurpirkt.lv", "ceno.lv"]
+    assert [o["store"] for o in offers] == ["salidzini.lv", "ceno.lv"]
     assert "q=JBL+Flip+7" in offers[0]["url"]
 
 

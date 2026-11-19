@@ -65,7 +65,7 @@ KURPIKT = KurpirktAdapter(
     domain="kurpirkt.lv",
     label="kurpirkt.lv (all LV shops)",
     strategy="playwright",   # CF managed challenge on ALL plain-requests fetches
-    dc_blocked=True,         # GitHub runners get challenged → ScraperAPI (10 credits, rendered)
+    dc_blocked=True,         # GitHub runners get challenged → needs remote fetch
     render_api=True,         # remote API fetches need JS rendering to clear Cloudflare
     daily_only=True,         # rendered fetches cost 10 API credits — poll once per day
     selectors={  # documentation only — extract() above is the real path
@@ -77,5 +77,7 @@ KURPIKT = KurpirktAdapter(
     notes="Aggregator (salidzini-style min across rows); prices dot-decimal, trailing '*' = "
           "loyalty price. /cena.php?q= URLs, optionally &p1=<floor> to skip the accessory "
           "band on page 1. Playwright auto-clears the CF challenge; a stuck challenge "
-          "fails one poll and self-recovers.",
+          "fails one poll and self-recovers. UNREACHABLE via ScraperAPI as of 2026-11-19: "
+          "plain/render/premium all return HTTP 500, ultra_premium 403 — works from "
+          "residential IPs (local runs); re-add offers via /add-url if that changes.",
 )

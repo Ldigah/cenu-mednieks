@@ -69,9 +69,10 @@ SALIDZINI = SalidziniAdapter(
     domain="salidzini.lv",
     label="salidzini.lv (all LV shops)",
     strategy="requests+playwright",   # /search works via plain requests from residential IPs
-    dc_blocked=True,                  # GitHub/ScraperAPI plain fetches hit a Turnstile wall…
-    render_api=True,                  # …so remote fetches render in a real browser (10 credits)
-    daily_only=True,                  # rendered fetches cost 10 credits — poll once per day
+    dc_blocked=True,                  # foreign datacenter IPs hit a Turnstile wall…
+    api_country="lv",                 # …but an LV exit passes with PLAIN requests (verified 2026-11-19)
+    render_api=False,
+    daily_only=False,
     selectors={  # CSS fallback only — JSON-LD AggregateOffer above is primary
         "price": "article a.product > data",
         "old_price": None,
@@ -81,6 +82,6 @@ SALIDZINI = SalidziniAdapter(
     wait_selector="article",
     notes="Use /search?q= URLs only (slug URLs → hCaptcha). Prices dot-decimal in "
           "JSON-LD, '73,00 €' in HTML. No discount data exists on this site. Verified "
-          "2026-11-19: plain fetches (even via ScraperAPI) return a Turnstile page — "
-          "render=true is required from datacenter egress.",
+          "2026-11-19 via ScraperAPI: plain + country_code=lv returns the full offers "
+          "page (no challenge); without the geo pin even renders hit Turnstile.",
 )

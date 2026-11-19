@@ -77,21 +77,24 @@ CAPTCHA_TITLES = ("robot check", "attention required", "just a moment", "access 
                   "ne robotas")
 
 
-def fetch_scraperapi(url: str, api_key: str, render: bool = False) -> str:
+def fetch_scraperapi(url: str, api_key: str, render: bool = False,
+                     country: str | None = None) -> str:
     """Fetch via ScraperAPI (rotating proxy pool) — for Cloudflare-guarded
     aggregators that challenge datacenter IPs (CI).
 
-    Credit cost: 1 credit plain, 10 with render=true. Rendered fetches add
-    wait=8000 so CF managed challenges (kurpirkt clears ≤10 s in a real
-    browser) have time to resolve. Their API queues slow sites, so plain
-    fetches get 60 s and rendered 100 s. Retries: once on pure network
-    timeouts and once on their 5xx (render-worker hiccups — seen as HTTP 500);
-    4xx/anti-bot responses raise immediately.
+    Credit cost: 1 credit plain, 10 with render=true. `country` pins the exit
+    country (verified 2026-11-19: country_code=lv avoids salidzini's Turnstile
+    entirely — plain fetch works). Rendered fetches add wait=8000 so CF managed
+    challenges have time to resolve. Retries: once on pure network timeouts and
+    once on their 5xx; 4xx/anti-bot responses raise immediately. Failed calls
+    cost nothing.
     """
     params: dict = {"api_key": api_key, "url": url}
     if render:
         params["render"] = "true"
         params["wait"] = "8000"
+    if country:
+        params["country_code"] = country
     timeout = 100 if render else 60
     last: FetchError | None = None
     for _attempt in range(2):

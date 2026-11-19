@@ -9,9 +9,10 @@ publishes to GitHub Pages, and an optional Cloudflare Worker answers commands in
 - **Deal alerts**: best-price drops (per-product threshold, default 5%), all-time lows,
   new/deeper discounts, restocks. Increases recorded silently. Daily digest at 23:00
   Latvia time with best store, ATL and 7-day delta per product.
-- **Stores**: salidzini.lv, kurpirkt.lv, ceno.lv (all LV shops; via ScraperAPI's free
-  tier in CI — Cloudflare blocks datacenter IPs), hinnavaatlus.ee, Amazon.de, Amazon.pl
-  (PLN→EUR), pigu.lt (paused), plus any shop with JSON-LD product data.
+- **Stores**: salidzini.lv + ceno.lv (all LV shops; via ScraperAPI's free tier in CI with
+  LV geo-pinning — Cloudflare blocks datacenter IPs), hinnavaatlus.ee, amazon.pl (PLN→EUR;
+  amazon.de drops the buybox to datacenter IPs), plus any shop with JSON-LD product data.
+  kurpirkt.lv works from residential IPs only (ScraperAPI can't fetch it).
 - **Surfaces**: Telegram chat (owner alerts + commands), Telegram Mini App / public
   page (`index.html` from [publish.py](publish.py)), inline queries via the Worker.
 - **State** lives in a secret GitHub Gist — nothing is committed back. Overlapping

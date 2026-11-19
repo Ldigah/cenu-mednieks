@@ -12,11 +12,6 @@
           "label": "salidzini.lv"
         },
         {
-          "url": "https://www.kurpirkt.lv/cena.php?q=ugreen+lp923",
-          "store": "kurpirkt.lv",
-          "label": "kurpirkt.lv"
-        },
-        {
           "url": "https://ceno.lv/search?q=UGREEN+LP923",
           "store": "ceno.lv",
           "label": "ceno.lv"
@@ -37,11 +32,6 @@
           "url": "https://www.salidzini.lv/search?q=JBL+Flip+7",
           "store": "salidzini.lv",
           "label": "salidzini.lv"
-        },
-        {
-          "url": "https://www.kurpirkt.lv/cena.php?q=flip+7+jbl&p1=50",
-          "store": "kurpirkt.lv",
-          "label": "kurpirkt.lv"
         },
         {
           "url": "https://ceno.lv/search?q=JBL+Flip+7",

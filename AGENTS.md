@@ -67,10 +67,11 @@ snapshot. Nothing is committed to the repo.
   remove the fallback.
 - `getUpdates` must be called with `offset = last_update_id + 1` or commands
   re-process forever.
-- salidzini.lv and kurpirkt.lv are `daily_only` + `render_api` (plain fetches hit a
-  Turnstile wall from datacenter egress — verified 2026-11-19): once/day rendered through
-  ScraperAPI at 10 credits each; ceno.lv stays plain 3×/day. Don't raise their cadence or
-  the free-credit budget breaks (≈690/1,000 per month total).
+- salidzini.lv: `api_country="lv"` plain fetches every run (an LV exit avoids the
+  Turnstile — verified 2026-11-19; without the geo pin even renders fail). ceno.lv: plain
+  every run. Budget ≈180/1,000 credits per month. kurpirkt.lv is UNREACHABLE via
+  ScraperAPI (500 on plain/render/premium, 403 ultra_premium — verified 2026-11-19):
+  no kurpirkt offers in CI; its preset remains for local runs from home IPs.
 - `publish.py` (not `site.py`) — `site` is Python's stdlib and shadows any local
   module of that name.
 - The Worker's read-only answers are approximations of the Python bot's replies; charts

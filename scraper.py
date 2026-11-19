@@ -75,7 +75,9 @@ def scrape_offer(url: str, adapter: stores.StoreAdapter):
     ident = urlparse(url).hostname or url
     try:
         if SCRAPERAPI_KEY and adapter.dc_blocked:
-            html_text = fetch.fetch_scraperapi(url, SCRAPERAPI_KEY, render=adapter.render_api)
+            html_text = fetch.fetch_scraperapi(url, SCRAPERAPI_KEY,
+                                               render=adapter.render_api,
+                                               country=adapter.api_country)
             return _extract_or_diag(ident, html_text, adapter)
         if adapter.uses_playwright():
             return _extract_or_diag(

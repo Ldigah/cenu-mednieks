@@ -27,7 +27,9 @@ from commands import slugify
 CATALOG_VERSION = 2
 
 # Aggregators whose /search?q= endpoint IS an offers list — used by /add discovery.
-DISCOVERY_STORES = ("salidzini.lv", "kurpirkt.lv", "ceno.lv")
+# kurpirkt is excluded: unreachable via ScraperAPI (verified 2026-11-19), so its
+# offers would fail every CI run. Attach it manually only for local/home runs.
+DISCOVERY_STORES = ("salidzini.lv", "ceno.lv")
 
 
 def _now_iso() -> str:
@@ -127,7 +129,6 @@ def discovery_offers(query: str) -> list[dict]:
     q = urllib.parse.quote_plus(query)
     urls = [
         f"https://www.salidzini.lv/search?q={q}",
-        f"https://www.kurpirkt.lv/cena.php?q={q}",
         f"https://ceno.lv/search?q={q}",
     ]
     return [_normalize_offer({"url": u, "store": _host_of(u), "label": _host_of(u)})

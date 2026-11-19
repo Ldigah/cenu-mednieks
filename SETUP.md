@@ -62,8 +62,11 @@ them through [ScraperAPI](https://www.scraperapi.com)'s free plan (1,000 credits
 no credit card — plain fetch = 1 credit, JS-rendered = 10):
 
 1. Sign up → copy the API key → add it as the `SCRAPERAPI_KEY` secret.
-2. That's it. The budget (verified 2026-11-19): salidzini + kurpirkt rendered once/day
-   (10 credits each), ceno plain 3×/day (1 credit each) → **≈690 of 1,000 credits/month**.
+2. That's it. The budget (verified 2026-11-19): salidzini + ceno plain 3×/day with LV
+   geo-pinning (`country_code=lv` avoids the Turnstile — 1 credit each) →
+   **≈180 of 1,000 credits/month**. kurpirkt.lv is unreachable via ScraperAPI (HTTP 500
+   on every proxy tier — verified) and is not tracked in CI; its preset stays for local
+   runs from home.
 3. Without the key the bot still works — those three stores simply fall back to the
    direct requests→Playwright ladder (fine from residential IPs, e.g. local dry runs).
 

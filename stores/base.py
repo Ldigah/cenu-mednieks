@@ -26,6 +26,7 @@ class StoreAdapter:
     dc_blocked: bool = False            # Cloudflare-challenges datacenter IPs → needs ScraperAPI in CI
     render_api: bool = False            # remote API fetches need JS rendering (credits ×10)
     daily_only: bool = False            # expensive fetches: poll once per day, not every run
+    api_country: str | None = None      # pin ScraperAPI exit country (country_code=lv avoids some CF rules)
     require_decimal_price: bool = False  # reject separator-less CSS prices (Amazon junk spans)
 
     def extract(self, html: str) -> parse.Extraction | None:
