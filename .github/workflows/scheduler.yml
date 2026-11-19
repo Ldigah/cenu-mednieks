@@ -10,7 +10,7 @@ on:
     types: [command-run]
 
 permissions:
-  contents: read          # checkout needs read access; nothing is ever written — state lives in a private gist
+  contents: read          # checkout needs read access; nothing is ever written — state lives in a gist
 
 concurrency:
   group: price-tracker
@@ -48,6 +48,37 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
-        # salidzini/kurpirkt/ceno Cloudflare-challenge datacenter IPs; pigu is paused —
-        # the home-PC scheduled task covers the LV aggregators
-        run: python scraper.py --skip-stores "salidzini.lv,pigu.lt,kurpirkt.lv,ceno.lv"
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+        # Cloudflare-guarded LV aggregators (salidzini/kurpirkt/ceno) go through
+        # ScraperAPI when SCRAPERAPI_KEY is set (free plan, ~480 credits/month);
+        # without the key they fall back to the requests→Playwright ladder.
+        run: python scraper.py
+
+      - name: Publish web snapshot
+        if: github.ref == 'refs/heads/main' && github.event_name != 'repository_dispatch'
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+        run: python site.py --out site
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'repository_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: run
+    if: github.ref == 'refs/heads/main' && github.event_name != 'repository_dispatch'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
