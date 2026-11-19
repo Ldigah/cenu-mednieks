@@ -47,6 +47,15 @@ def _normalize_offer(offer: dict) -> dict:
             "label": offer.get("label") or host}
 
 
+def _normalize_tags(tags) -> list[str]:
+    out: list[str] = []
+    for t in tags or []:
+        tag = str(t).strip().lstrip("#").lower()
+        if tag and tag not in out:
+            out.append(tag)
+    return out
+
+
 def _normalize_product(prod: dict) -> dict:
     offers = [_normalize_offer(o) for o in prod.get("offers") or []]
     # de-duplicate by URL, keep first
@@ -56,6 +65,7 @@ def _normalize_product(prod: dict) -> dict:
         if o["url"] and o["url"] not in seen:
             seen.add(o["url"])
             uniq.append(o)
+    image = prod.get("image")
     return {
         "id": prod.get("id") or slugify(prod.get("name") or "item"),
         "name": (prod.get("name") or "").strip(),
@@ -64,6 +74,9 @@ def _normalize_product(prod: dict) -> dict:
         "added_by": prod.get("added_by"),  # chat id of who /add-ed it (quota, removal rights)
         "atl": prod.get("atl"),          # {"price","date","url","store"} | None
         "last_min": prod.get("last_min"),  # {"price","url","store"} | None
+        "tags": _normalize_tags(prod.get("tags")),  # phase 2 (Q24)
+        "image": image if isinstance(image, str) and image.startswith(("http://", "https://"))
+        else None,  # phase 2 (Q28): product photo for inline thumbs / the app
         "offers": uniq,
     }
 
@@ -137,16 +150,53 @@ def discovery_offers(query: str) -> list[dict]:
 
 
 def find_products(products: dict, part: str) -> list[dict]:
-    part = (part or "").lower().strip()
+    part = (part or "").lower().strip().lstrip("#")
     if not part:
         return []
     out = []
     for p in products.get("products", []):
-        hay = f"{p['id']} {p['name']}".lower() + \
+        hay = f"{p['id']} {p['name']} #{'#'.join(p.get('tags') or [])}".lower() + \
               "".join(o["url"].lower() for o in p["offers"])
         if part in hay:
             out.append(p)
     return out
+
+
+def find_tagged(products: dict, tag: str) -> list[dict]:
+    """Exact-match tag filter for /list #audio — empty tag → everything."""
+    tag = (tag or "").lower().strip().lstrip("#")
+    if not tag:
+        return list(products.get("products") or [])
+    return [p for p in products.get("products") or [] if tag in (p.get("tags") or [])]
+
+
+def tag_index(products: dict) -> dict[str, int]:
+    """All tags → product counts (for /tags and the app's filter chips)."""
+    idx: dict[str, int] = {}
+    for p in products.get("products") or []:
+        for t in p.get("tags") or []:
+            idx[t] = idx.get(t, 0) + 1
+    return dict(sorted(idx.items()))
+
+
+def set_tag(product: dict, tag: str) -> bool:
+    tag = (tag or "").strip().lstrip("#").lower()
+    if not tag:
+        return False
+    tags = product.setdefault("tags", [])
+    if tag in tags:
+        return False
+    tags.append(tag)
+    return True
+
+
+def unset_tag(product: dict, tag: str) -> bool:
+    tag = (tag or "").strip().lstrip("#").lower()
+    tags = product.get("tags") or []
+    if tag not in tags:
+        return False
+    tags.remove(tag)
+    return True
 
 
 def add_offer(product: dict, offer: dict) -> bool:
@@ -220,7 +270,7 @@ def product_stats(product: dict, prices: dict, now: datetime | None = None) -> d
         return round(sum(vals) / len(vals), 2)
 
     store = (best_offer or {}).get("label") or (best_offer or {}).get("store")
-    return {
+    stats = {
         "best": {"price": best_st.get("price") if best_st else None,
                  "store": store, "url": (best_offer or {}).get("url")},
         "atl": product.get("atl"),
@@ -229,4 +279,68 @@ def product_stats(product: dict, prices: dict, now: datetime | None = None) -> d
         "avg30": window(mean, 30 * 86400),
         "points": len(pts),
         "stores": len(product.get("offers") or []),
+        # phase 2 (Q23) buy signals:
+        "vol": volatility(pts, ts_now),      # ±% around the 30-day mean — is waiting worth it?
+        "dow": best_weekday(pts, ts_now),    # cheapest weekday once ≥4 weeks of history exist
+        "drops30": drop_count(pts, ts_now),  # how often patience paid in the last 30 days
     }
+    return stats
+
+
+def volatility(pts: list[tuple[float, float]], ts_now: float) -> float | None:
+    """Relative volatility: stdev of 30-day observations as % of their mean.
+
+    High (≈ >8%) = this product dips regularly, waiting often pays;
+    low = buy whenever a decent drop appears.
+    """
+    vals = [p for t, p in pts if t >= ts_now - 30 * 86400]
+    if len(vals) < 6:
+        return None
+    m = sum(vals) / len(vals)
+    if m <= 0:
+        return None
+    var = sum((v - m) ** 2 for v in vals) / len(vals)
+    return round(var ** 0.5 / m * 100, 1)
+
+
+def best_weekday(pts: list[tuple[float, float]], ts_now: float) -> dict | None:
+    """Cheapest day-of-week from ~4+ weeks of daily lows; None until honest data exists.
+
+    Weekly lows (the cheapest observation per ISO week) are grouped by weekday so
+    single cheap days can't dominate.
+    """
+    recent = [(t, p) for t, p in pts if t >= ts_now - 42 * 86400]
+    if not recent:
+        return None
+    weeks: dict[str, float] = {}
+    for t, p in recent:
+        key = datetime.fromtimestamp(t, UTC).strftime("%G-W%V")
+        weeks[key] = min(p, weeks.get(key, p))
+    if len(weeks) < 4:
+        return None
+    per_dow: dict[int, list[float]] = {}
+    for key, p in weeks.items():
+        # Monday=0 … Sunday=6 from the week's Monday
+        mon = datetime.strptime(key + "-1", "%G-W%V-%u").replace(tzinfo=UTC)
+        per_dow.setdefault(mon.weekday(), []).append(p)
+    if not per_dow:
+        return None
+    day, prices = min(per_dow.items(), key=lambda kv: sum(kv[1]) / len(kv[1]))
+    return {"day": day, "avg": round(sum(prices) / len(prices), 2)}
+
+
+def drop_count(pts: list[tuple[float, float]], ts_now: float,
+               min_pct: float = 5.0) -> int | None:
+    """Number of ≥min_pct price drops in the last 30 days ('did patience pay?')."""
+    recent = sorted((t, p) for t, p in pts if t >= ts_now - 30 * 86400)
+    if len(recent) < 2:
+        return None
+    drops = 0
+    prev = recent[0][1]
+    for _, p in recent[1:]:
+        if prev and p < prev and (prev - p) / prev * 100 >= min_pct:
+            drops += 1
+            prev = p  # count successive drops from the new floor
+        else:
+            prev = min(prev, p) if prev else p
+    return drops

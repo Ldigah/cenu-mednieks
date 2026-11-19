@@ -26,3 +26,13 @@ def parse_command(text: str):
 def slugify(s: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")
     return s[:60] or "item"
+
+
+def parse_price_arg(text: str) -> float | None:
+    """/target-style price argument: '65', '65,99', '65.99 €' → float, else None."""
+    raw = (text or "").strip().rstrip("€").strip().replace(" ", "").replace(",", ".")
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value == value else None  # NaN guard

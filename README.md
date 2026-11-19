@@ -18,6 +18,9 @@ publishes to GitHub Pages, and an optional Cloudflare Worker answers commands in
 - **Multi-user** (2026-11-19): approved members share one catalog; each has their own
   watchlist, quota (10), quiet hours and personal digest. Strangers get a
   [Request access] button; the owner approves with one tap. See DECISIONS.md.
+- **Phase 2**: Mini App v2 (Telegram-themed, per-user watch/targets via initData
+  auth, deals feed, charts), target prices (🎯 ping when under X), tags,
+  volatility/weekday/drop-frequency stats, /search, inline cards with buttons.
 - **State** lives in a secret GitHub Gist (`products.json`, `prices.json`,
   `bot_state.json`, `users.json`) — nothing is committed back. Overlapping runs are
   safe: advisory gist lock + merge-on-write.
@@ -42,9 +45,10 @@ Worker: [worker/README.md](worker/README.md)
 
 `/add <name>` (guided: pick from matches) · `/add <url> [name]` · `/add_url <url> [part]` ·
 `/watch [part]` · `/unwatch <part>` · `/mute <part>` · `/unmute <part>` ·
-`/threshold <part> <pct>` · `/list` · `/prices` · `/where <part>` · `/stats [part]` ·
-`/best` · `/chart [part]` · `/remove <part>` · `/check` · `/settings` · `/requests` ·
-`/quota` · `/whoami` · `/watchall` · `/help`
+`/target <part> <price|off>` · `/threshold <part> <pct>` · `/tag <part> #t` ·
+`/untag <part> #t` · `/tags` · `/search <name>` (5/day) · `/list [#tag]` · `/prices` ·
+`/where <part>` · `/stats [part]` · `/best` · `/chart [part]` · `/remove <part>` ·
+`/check` · `/settings` · `/requests` · `/quota` · `/whoami` · `/watchall` · `/help`
 
 Alert cards carry buttons: [Where] [Chart] [Watch] [Mute]; destructive actions
 (/remove, threshold changes, /check) ask for confirmation first.

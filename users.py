@@ -41,6 +41,8 @@ def new_user(chat_id, name: str = "", username: str = "", role: str = ROLE_MEMBE
             "role": role, "status": status,
             "watch_all": role == ROLE_OWNER,   # owner sees everything by default
             "watchlist": [], "muted": [], "quota": QUOTA_DEFAULT,
+            "targets": {},      # phase 2 (Q21): pid → target price in EUR
+            "targets_hit": {},  # pid → price at last target alert (re-alert on new lows)
             "added": datetime.now(UTC).isoformat(timespec="seconds"),
             "prefs": {"digest": role == ROLE_OWNER, "digest_hour_utc": DIGEST_HOURS_UTC[2],
                       "quiet": "off", "lang": "en"}}
@@ -58,6 +60,11 @@ def ensure(users: dict | None) -> dict:
         base["muted"] = [str(p) for p in u.get("muted") or []]
         base["quota"] = int(u["quota"]) if isinstance(u.get("quota"), (int, float)) \
             else QUOTA_DEFAULT
+        base["targets"] = {str(k): float(v) for k, v in (u.get("targets") or {}).items()
+                           if isinstance(v, (int, float))}
+        base["targets_hit"] = {str(k): float(v)
+                               for k, v in (u.get("targets_hit") or {}).items()
+                               if isinstance(v, (int, float))}
         if u.get("added"):
             base["added"] = u["added"]
         prefs = dict(base["prefs"])
@@ -268,6 +275,50 @@ def is_quiet_now(user: dict, now: datetime) -> bool:
     if start < end:
         return start <= h < end
     return h >= start or h < end
+
+
+# ---------------------------------------------------------------------------
+# Target prices (Q21): per-user "tell me when it's under X €"
+# ---------------------------------------------------------------------------
+
+def set_target(user: dict, product_id: str, price: float) -> None:
+    user.setdefault("targets", {})[str(product_id)] = round(float(price), 2)
+    user.setdefault("targets_hit", {}).pop(str(product_id), None)
+
+
+def clear_target(user: dict, product_id: str) -> bool:
+    t = user.get("targets") or {}
+    if str(product_id) not in t:
+        return False
+    del t[str(product_id)]
+    (user.get("targets_hit") or {}).pop(str(product_id), None)
+    return True
+
+
+def target_for(user: dict, product_id: str) -> float | None:
+    return (user.get("targets") or {}).get(str(product_id))
+
+
+def target_status(user: dict, product_id: str, best_price: float | None) -> str | None:
+    """'new-low' | 'hit-already' | 'above' | None — drives the re-alert logic.
+
+    Self-mutating (like alerts._atl_fields): returning 'new-low' records the hit,
+    so the same low never alerts twice; a rise back above the target clears the
+    record so the next dip fires again.
+    """
+    target = target_for(user, product_id)
+    if target is None or best_price is None:
+        return None
+    pid = str(product_id)
+    if best_price <= target:
+        hits = user.setdefault("targets_hit", {})
+        hit = hits.get(pid)
+        if hit is None or best_price < hit:
+            hits[pid] = best_price
+            return "new-low"
+        return "hit-already"
+    (user.get("targets_hit") or {}).pop(pid, None)
+    return "above"
 
 
 # ---------------------------------------------------------------------------

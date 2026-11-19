@@ -74,13 +74,47 @@ def test_payload_updates_carries_confirmed():
 # ---------------------------------------------------------------------------
 
 def test_callback_data_fits_telegram_limit():
-    slugs = ["jbl-flip-7", "ugreen-lp923-magsafe-car-phone-holder-very-long-slug"]
+    slugs = ["jbl-flip-7", "ugreen-lp923-magsafe-car-phone-holder-very-long-slug-x"]
     for kb in [telegram_io.kb_alert(s) for s in slugs] \
         + [telegram_io.kb_confirm_remove(s) for s in slugs] \
-        + [telegram_io.kb_confirm_threshold(s, 12.5) for s in slugs]:
+        + [telegram_io.kb_confirm_op("ab12cd")] \
+        + [telegram_io.kb_candidates("k.123", [{"name": "X", "min_price": 1.0, "count": 1}])]:
         for row in kb:
             for btn in row:
                 assert len(btn["callback_data"]) <= 64
+
+
+def test_ask_confirm_uses_short_keys():
+    # even a 60-char product id stays within Telegram's 64-byte callback limit
+    bot_state: dict = {}
+    telegram_io.ask_confirm(2, bot_state, "/threshold " + ("x" * 60) + " 12.5", "Sure?")
+    (key, op), = bot_state["pending_ops"].items()
+    assert len(key) == 6 and op["cmd"].startswith("/threshold")
+
+
+def test_cf_callback_runs_stored_command(monkeypatch):
+    wire(monkeypatch)
+    ud = ud_fixture()
+    prods = products_fixture()
+    bot_state: dict = {"pending_ops": {"ab12cd": {"cmd": "/threshold jbl-flip-7 12.5",
+                                                  "chat_id": 2, "created": "2026-01-01"}}}
+    telegram_io.handle_callback({"data": "cf:ab12cd", "id": "c",
+                                 "message": {"chat": {"id": 2}}},
+                                prods, {}, bot_state, ud)
+    assert "ab12cd" not in bot_state["pending_ops"]  # consumed
+    assert prods["products"][0]["threshold_pct"] == 12.5  # command executed
+
+
+def test_cf_callback_rejects_wrong_clicker(monkeypatch):
+    wire(monkeypatch)
+    ud = ud_fixture()
+    prods = products_fixture()
+    bot_state: dict = {"pending_ops": {"ffff00": {"cmd": "/remove jbl-flip-7",
+                                                  "chat_id": 999, "created": "2026-01-01"}}}
+    telegram_io.handle_callback({"data": "cf:ffff00", "id": "c",
+                                 "message": {"chat": {"id": 2}}},
+                                prods, {}, bot_state, ud)
+    assert len(prods["products"]) == 1  # member 2 may not confirm 999's op
 
 
 def test_kb_candidates_shape():

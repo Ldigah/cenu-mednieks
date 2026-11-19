@@ -149,9 +149,14 @@ alerts.py, Worker callbacks). Superseded rows marked. Everything else stands.
 - **Phase 1 (done 2026-11-19)**: users.json + approval flow, watchlists, per-user
   alert routing + quiet hours + personal digests, rich alert cards, confirmations,
   guided /add, /settings, quota, Worker callbacks/cooldown//ping, budget tracking.
-- **Phase 2**: Mini App v2 (light JS, initData auth, watch stars, deals feed, deep
-  links), /search with [Track], target prices, tags, inline buttons+thumbs,
-  derived stats (volatility, best day, drop frequency), LV translation.
+- **Phase 2 (implemented 2026-11-19)**: Mini App v2 (app/ + publish.py: light JS,
+  initData HMAC auth via Worker /api/me|toggle|cmd, watch/mute stars, threshold/
+  target editors, deals feed, 90-day chart PNGs, deep links ?p=<id>), /search with
+  [Track] (5/day via KV), target prices (/target, hit alerts with re-arm), tags
+  (/tag /untag /tags, /list #filter), inline buttons+thumbs (product images via
+  JSON-LD/og:image harvest), derived stats (volatility, best weekday, drops30),
+  cf:<key> short-key confirmations (64-byte-safe), i18n started (i18n.py en+lv for
+  alerts/digest/intro; /help + command acks English until phase 3).
 - **Phase 3**: full app mutations (add by URL in app), deals.json/RSS, per-user
   language switch end-to-end.
 

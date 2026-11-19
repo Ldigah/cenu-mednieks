@@ -1,0 +1,98 @@
+/* Cenu Mednieks Mini App — Telegram theme-aware (Q12), light fallback. */
+:root {
+  --bg: #ffffff; --card: #f4f4f5; --border: #e4e4e7; --text: #111827;
+  --muted: #6b7280; --accent: #2f81f7; --good: #16a34a; --warn: #dc2626;
+  --gold: #d97706;
+}
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  padding-bottom: 40px;
+}
+header {
+  position: sticky; top: 0; z-index: 10; display: flex; justify-content: space-between;
+  align-items: center; padding: 12px 16px; background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; gap: 10px; align-items: center; }
+.logo { font-size: 1.6rem; }
+header h1 { font-size: 1.1rem; margin: 0; }
+header p { margin: 0; color: var(--muted); font-size: .78rem; }
+#userbox { color: var(--muted); font-size: .8rem; text-align: right; }
+main { max-width: 720px; margin: 0 auto; padding: 10px 14px; }
+.loading { text-align: center; color: var(--muted); padding: 40px 0; }
+
+.searchbox {
+  width: 100%; box-sizing: border-box; padding: 9px 12px; margin: 6px 0 10px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+  color: var(--text); font: inherit;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip {
+  border: 1px solid var(--border); background: var(--card); color: var(--muted);
+  border-radius: 999px; padding: 3px 11px; font-size: .8rem; cursor: pointer;
+}
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.section { font-size: .95rem; font-weight: 700; margin: 16px 0 8px; }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; margin: 10px 0; cursor: pointer;
+}
+.card .top { display: flex; gap: 12px; align-items: center; }
+.card img.thumb { width: 54px; height: 54px; border-radius: 8px; object-fit: cover;
+  background: var(--border); flex: 0 0 auto; }
+.card .name { font-weight: 700; }
+.card .meta { color: var(--muted); font-size: .82rem; }
+.price { font-size: 1.35rem; font-weight: 800; color: var(--good); }
+.badge {
+  display: inline-block; border-radius: 6px; padding: 1px 7px; font-size: .75rem;
+  margin-left: 6px; background: var(--border); color: var(--muted);
+}
+.badge.hot { background: var(--good); color: #fff; }
+.badge.atl { background: var(--gold); color: #fff; }
+.badge.off { background: var(--warn); color: #fff; }
+.badge.hit { background: var(--accent); color: #fff; }
+
+.detail .top { display: flex; gap: 14px; }
+.detail img.big { width: 96px; height: 96px; border-radius: 12px; object-fit: cover;
+  background: var(--border); }
+.detail .price { font-size: 1.7rem; }
+.buybtn {
+  display: inline-block; background: var(--accent); color: #fff !important;
+  text-decoration: none; border-radius: 10px; padding: 8px 16px; font-weight: 700;
+  margin-top: 6px;
+}
+img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--border); margin: 10px 0; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.cell { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; font-size: .85rem; }
+.cell b { display: block; font-size: 1rem; }
+.cell span { color: var(--muted); font-size: .72rem; }
+
+table { width: 100%; border-collapse: collapse; font-size: .88rem; margin: 8px 0; }
+td { padding: 6px 6px; border-top: 1px solid var(--border); }
+td a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.btn {
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+  border-radius: 10px; padding: 8px 14px; font: inherit; cursor: pointer; font-size: .9rem;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: var(--warn); }
+.btn.on { background: var(--gold); border-color: var(--gold); color: #fff; }
+.inline-edit { display: flex; gap: 8px; margin: 8px 0; }
+.inline-edit input {
+  flex: 1; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.backlink { color: var(--accent); cursor: pointer; font-size: .9rem; display: inline-block;
+  margin-bottom: 8px; }
+#toast {
+  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); padding: 9px 18px; border-radius: 999px;
+  font-size: .9rem; z-index: 50; max-width: 90%;
+}
+footer { text-align: center; color: var(--muted); font-size: .75rem; padding: 18px 0 8px; }
+footer a { color: var(--accent); }

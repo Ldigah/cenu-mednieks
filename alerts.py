@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 from datetime import UTC, datetime
 
+import i18n
 import users as users_mod
 from config import DEFAULT_DROP_PCT, DROP_ALERT_MIN_PCT, SCRAPERAPI_MONTHLY_CREDITS, USAGE_WARN_FRACTION
 from parse import Extraction
@@ -87,12 +88,83 @@ def diff_events(entry: dict, new: Extraction, old: dict | None) -> list[str]:
 def offer_events(entry: dict, new: Extraction, old: dict | None) -> list[str]:
     """Per-offer events used in the product model — drops are handled at product level
     (the min offer), so only discounts and restocks fire per store."""
-    return _discount_events(entry, new, old) + _restock_events(entry, new, old)
+    out = []
+    f = _discount_fields(entry, new, old)
+    if f:
+        out.append(f"🏷 <b>{f['label']}</b> discount: <b>{f['price']}</b> "
+                   f"(reg. {f['old']}, −{f['pct']}%)\n{f['url']}")
+    f = _restock_fields(entry, new, old)
+    if f:
+        out.append(f"♻️ <b>{f['label']}</b> back in stock at <b>{f['price']}</b>\n{f['url']}")
+    return out
+
+
+def offer_event_specs(entry: dict, new: Extraction, old: dict | None) -> list[tuple[str, dict]]:
+    """i18n specs for the per-offer events (same triggers as offer_events)."""
+    specs = []
+    f = _discount_fields(entry, new, old)
+    if f:
+        specs.append(("discount_alert", f))
+    f = _restock_fields(entry, new, old)
+    if f:
+        specs.append(("restock_alert", f))
+    return specs
+
+
+def _discount_fields(entry: dict, new: Extraction, old: dict | None) -> dict | None:
+    if old is None:
+        return None
+    if new.old_price is not None and new.price is not None and new.old_price > new.price:
+        now_disc = new.old_price - new.price
+        old_disc = None
+        if old.get("old_price") is not None and old.get("price") is not None:
+            old_disc = old["old_price"] - old["price"]
+        if old_disc is None or now_disc > old_disc + 0.005:  # new or deeper discount
+            pct = now_disc / new.old_price * 100 if new.old_price else 0.0
+            return {"label": esc(entry_label(entry)),
+                    "price": fmt_eur(new.price), "old": fmt_eur(new.old_price),
+                    "pct": f"{pct:.0f}", "url": entry["url"]}
+    return None
+
+
+def _restock_fields(entry: dict, new: Extraction, old: dict | None) -> dict | None:
+    if old is None:
+        return None
+    if new.in_stock is True and old.get("in_stock") is False and new.price is not None:
+        return {"label": esc(entry_label(entry)), "price": fmt_eur(new.price),
+                "url": entry["url"]}
+    return None
+
+
+# --- target prices (Q21) -----------------------------------------------------
+
+def target_event(product: dict, price: float, target: float, store: str) -> str:
+    """English target-hit alert (legacy builder)."""
+    return (f"🎯 <b>{esc(product['name'])}</b> hit your target: <b>{fmt_eur(price)}</b> "
+            f"(target {fmt_eur(target)}) at {esc(store)}\n"
+            f"{(product.get('last_min') or {}).get('url') or ''}")
+
+
+def target_spec(product: dict, price: float, target: float, store: str) -> tuple[str, dict]:
+    return ("target_alert", {"name": esc(product["name"]), "price": fmt_eur(price),
+                             "target": fmt_eur(target), "store": esc(store),
+                             "url": (product.get("last_min") or {}).get("url") or ""})
 
 
 def product_min_event(product: dict, offer: dict, new: Extraction,
                       prev_min: dict | None) -> str | None:
     """Drop alert on the product's best price across stores (per-product threshold)."""
+    f = _product_min_fields(product, offer, new, prev_min)
+    if f is None:
+        return None
+    prev_at = f" at {f['prev_store']}" if f["prev_store"] else ""
+    return (f"📉 <b>{f['name']}</b> — new best <b>{f['price']}</b> "
+            f"at {f['store']}\nwas {f['prev']}{prev_at} (−{f['pct']}%)\n{f['url']}")
+
+
+def _product_min_fields(product: dict, offer: dict, new: Extraction,
+                        prev_min: dict | None) -> dict | None:
+    """Shared trigger + fields for the product drop alert (None = no alert)."""
     if prev_min is None or prev_min.get("price") is None:
         return None
     if new.price is None or offer is None:
@@ -103,34 +175,63 @@ def product_min_event(product: dict, offer: dict, new: Extraction,
     pct = (prev_p - new.price) / prev_p * 100 if prev_p else 0.0
     if pct < product_threshold(product) or (prev_p - new.price) < 0.01:
         return None
-    store = esc(offer.get("label") or offer.get("store") or "")
-    prev_store = esc(prev_min.get("store") or "")
-    prev_at = f" at {prev_store}" if prev_store else ""
-    return (f"📉 <b>{esc(product['name'])}</b> — new best <b>{fmt_eur(new.price)}</b> "
-            f"at {store}\nwas {fmt_eur(prev_p)}{prev_at} (−{pct:.1f}%)\n{offer['url']}")
+    return {"name": esc(product["name"]),
+            "price": fmt_eur(new.price),
+            "store": esc(offer.get("label") or offer.get("store") or ""),
+            "prev": fmt_eur(prev_p),
+            "prev_store": esc(prev_min.get("store") or ""),
+            "pct": f"{pct:.1f}",
+            "url": offer["url"]}
+
+
+def product_min_spec(product: dict, offer: dict, new: Extraction,
+                     prev_min: dict | None) -> tuple[str, dict] | None:
+    """i18n spec for the drop alert — same trigger, T()-rendered per user language."""
+    f = _product_min_fields(product, offer, new, prev_min)
+    return ("drop_alert", f) if f else None
 
 
 def atl_update(product: dict, offer: dict, new: Extraction) -> str | None:
     """Record/refresh the product's all-time low. Returns an alert when a NEW low was
     set (the first sighting only establishes the baseline, silently)."""
+    f = _atl_fields(product, offer, new)
+    if f is None:
+        return None
+    if f["kind"] == "baseline":
+        return None
+    return (f"🏆 <b>{f['name']}</b> all-time low: <b>{f['price']}</b> "
+            f"at {f['store']}\nprevious low {f['prev']} from {f['prev_date']}\n{f['url']}")
+
+
+def _atl_fields(product: dict, offer: dict, new: Extraction) -> dict | None:
+    """Shared trigger + fields for the ATL event; also WRITES the new product.atl."""
     if new.price is None or offer is None:
         return None
     atl = product.get("atl")
     store = offer.get("label") or offer.get("store") or ""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     if not atl or atl.get("price") is None:
-        product["atl"] = {"price": new.price,
-                          "date": datetime.now(UTC).isoformat(timespec="seconds"),
+        product["atl"] = {"price": new.price, "date": now,
                           "url": offer["url"], "store": store}
-        return None
+        return {"kind": "baseline"}
     if new.price < atl["price"]:
         prev_p = atl["price"]
         prev_date = str(atl.get("date", ""))[:10]
-        product["atl"] = {"price": new.price,
-                          "date": datetime.now(UTC).isoformat(timespec="seconds"),
+        product["atl"] = {"price": new.price, "date": now,
                           "url": offer["url"], "store": store}
-        return (f"🏆 <b>{esc(product['name'])}</b> all-time low: <b>{fmt_eur(new.price)}</b> "
-                f"at {esc(store)}\nprevious low {fmt_eur(prev_p)} from {prev_date}\n{offer['url']}")
+        return {"kind": "alert",
+                "name": esc(product["name"]), "price": fmt_eur(new.price),
+                "store": esc(store), "prev": fmt_eur(prev_p),
+                "prev_date": prev_date, "url": offer["url"]}
     return None
+
+
+def atl_spec(product: dict, offer: dict, new: Extraction) -> tuple[str, dict] | None:
+    """i18n spec for the all-time-low alert (baseline sightings alert nothing)."""
+    f = _atl_fields(product, offer, new)
+    if f is None or f["kind"] == "baseline":
+        return None
+    return ("atl_alert", f)
 
 
 def failure_alert(entry: dict, fails: int, reason: str) -> str:
@@ -159,13 +260,16 @@ def _delta_7d(st: dict, now: datetime) -> str | None:
     return f" {arrow}{abs(d):.2f} €/7d"
 
 
-def digest_lines(products: dict, prices: dict, ids: list[str] | None = None) -> list[str]:
+def digest_lines(products: dict, prices: dict, ids: list[str] | None = None,
+                 lang: str | None = None) -> list[str]:
     """Enriched daily digest: best store per product, ATL, 7-day delta, fail counts.
 
     ids: optional watchlist filter — personal digests pass the user's product ids (Q20).
+    lang: user preference — header/empty note localized (rows stay data-English).
     """
     now = datetime.now(UTC)
-    lines = [f"🛒 <b>Daily price summary</b> — {now:%Y-%m-%d} (all times UTC in history)"]
+    lines = [i18n.T(lang, "digest_header", date=f"{now:%Y-%m-%d}")
+             + " (all times UTC in history)"]
     for prod in products.get("products", []):
         if ids is not None and prod.get("id") not in ids:
             continue
@@ -200,7 +304,7 @@ def digest_lines(products: dict, prices: dict, ids: list[str] | None = None) -> 
             f"<b>{fmt_eur(best)}</b> at {esc(store)}{extra}{conv}{delta}{atl_txt}{fails_txt} "
             f"({n} store{'s' if n != 1 else ''})")
     if len(lines) == 1:
-        lines.append("Nothing to summarize yet — /watch a product or /add one.")
+        lines.append(i18n.T(lang, "digest_empty"))
     return lines
 
 
@@ -260,14 +364,14 @@ def bump_usage(usage: dict, credits: int = 1, now: datetime | None = None) -> di
     return usage
 
 
-def budget_line(usage: dict) -> str | None:
+def budget_line(usage: dict, lang: str | None = None) -> str | None:
     """Digest footer: credit usage this month; None when nothing was spent."""
     if usage.get("month") != datetime.now(UTC).strftime("%Y-%m"):
         return None
     credits = int(usage.get("credits") or 0)
     if credits <= 0:
         return None
-    return (f"💳 ScraperAPI: {credits}/{SCRAPERAPI_MONTHLY_CREDITS} credits this month")
+    return i18n.T(lang, "budget_line", credits=credits, total=SCRAPERAPI_MONTHLY_CREDITS)
 
 
 def budget_warning(usage: dict) -> str | None:

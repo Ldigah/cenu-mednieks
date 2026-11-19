@@ -216,7 +216,7 @@ def merge_bot_state(theirs: dict | None, ours: dict) -> dict:
                                int(ours.get("update_offset") or 0))
     if ours.get("chat_id"):
         out["chat_id"] = ours["chat_id"]
-    for key in ("pending_alerts", "pending_adds"):
+    for key in ("pending_alerts", "pending_adds", "pending_ops"):
         merged = dict((theirs or {}).get(key) or {})
         for chat, val in (ours.get(key) or {}).items():
             if isinstance(val, list) and isinstance(merged.get(chat), list):

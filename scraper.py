@@ -18,12 +18,13 @@ import logging
 import os
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import alerts
 import catalog
 import fetch
+import i18n
 import parse
 import state as state_mod
 import stores
@@ -128,12 +129,28 @@ def _checked_today(st: dict) -> bool:
     return bool(last) and last == datetime.now(UTC).date().isoformat()
 
 
-def stage_add(chat_id, query: str, user: dict, bot_state: dict) -> None:
-    """Guided /add (Q30): preview aggregator matches as pick buttons before tracking.
+def prune_pending_ops(bot_state: dict, max_age_hours: int = 24) -> int:
+    """Drop expired confirmation ops (cf:<key> registry) — returns the removed count."""
+    ops = bot_state.get("pending_ops") or {}
+    if not ops:
+        return 0
+    cutoff = (datetime.now(UTC) - timedelta(hours=max_age_hours)).isoformat(timespec="seconds")
+    stale = [k for k, op in ops.items() if str(op.get("created") or "") < cutoff]
+    for k in stale:
+        del ops[k]
+    if stale:
+        bot_state["pending_ops"] = ops
+    return len(stale)
+
+
+def stage_add(chat_id, query: str, user: dict, bot_state: dict,
+              search_mode: bool = False) -> None:
+    """Guided /add (Q30) and /search (Q27): preview aggregator matches as buttons.
 
     Scrapes the discovery search pages right now (2 credits max), groups the
     rows into distinct product candidates, and stores everything in
     bot_state.pending_adds — nothing is tracked until a button is tapped.
+    search_mode only changes the wording (price-check first, track after).
     """
     found: dict[str, dict] = {}
     usage = bot_state.setdefault("usage", {})
@@ -162,16 +179,22 @@ def stage_add(chat_id, query: str, user: dict, bot_state: dict) -> None:
         "key": key, "query": query, "candidates": ranked,
         "created": now_iso(), "added_by": user.get("chat_id")}
     if ranked:
-        telegram_io.send_card(chat_id,
-                              f"🔎 Matches for “{alerts.esc(query)}” — tap the real product:",
-                              telegram_io.kb_candidates(key, ranked))
-        log.info("add-preview %s: %d candidate(s)", query, len(ranked))
+        head = (f"🔎 Results for “{alerts.esc(query)}” — tap ⭐ Track to watch one:"
+                if search_mode else
+                f"🔎 Matches for “{alerts.esc(query)}” — tap the real product:")
+        telegram_io.send_card(chat_id, head, telegram_io.kb_candidates(key, ranked,
+                                                                      mode="search"
+                                                                      if search_mode
+                                                                      else "add"))
+        log.info("add-preview %s: %d candidate(s) (%s)", query, len(ranked),
+                 "search" if search_mode else "add")
     else:
         telegram_io.send_card(chat_id,
                               f"Couldn't preview “{alerts.esc(query)}” — search pages "
-                              f"failed. Add as-is and check /list after the run, or "
-                              f"/add_url a specific product page.",
-                              telegram_io.kb_candidates(key, []))
+                              f"failed. Try again later, or /add_url a specific product page.",
+                              telegram_io.kb_candidates(key, [],
+                                                        mode="search" if search_mode
+                                                        else "add"))
 
 
 def bootstrap_gist() -> int:
@@ -226,6 +249,8 @@ def main() -> int:
     bot_state = store.read(F_BOT) or {"update_offset": 0}
     ud = users_mod.ensure(store.read(F_USERS))
     first_run = not prices
+    # expired confirmations (24 h) never pile up in bot_state
+    prune_pending_ops(bot_state)
 
     # --- 0. State lock (two runners may overlap: scheduled + manual dispatch) ---
     gist = isinstance(store, state_mod.GistStore)
@@ -239,17 +264,28 @@ def main() -> int:
             time.sleep(20)
             have_lock = store.acquire_lock(runner_id)
 
-    def notify(product_id: str, events: list[str], keyboard=None) -> None:
-        """Alert routing (Q3/Q4/Q18/Q19): per-user watchlist DMs with action buttons;
-        quiet-hour users get the alert parked until morning."""
+    def notify_one(u: dict, product_id: str, text: str, specs, keyboard=None) -> None:
+        """Single-recipient send with quiet-hour parking (Q19) + i18n (Q16).
+
+        specs: optional [(key, fields)] — when the user prefers lv, texts are
+        re-rendered from i18n instead of the legacy English strings.
+        """
+        lang = (u.get("prefs") or {}).get("lang") or "en"
+        if lang != "en" and specs:
+            text = "\n\n".join(
+                i18n.T(lang, key, **fields) for key, fields in specs)
+        if alerts.hold_alert(ud, u, text, keyboard, bot_state):
+            return
+        if keyboard:
+            telegram_io.send_card(u["chat_id"], text, keyboard)
+        else:
+            telegram_io.send_message(u["chat_id"], text)
+
+    def notify(product_id: str, events: list[str], specs=None, keyboard=None) -> None:
+        """Alert routing (Q3/Q4/Q18/Q19): per-user watchlist DMs with action buttons."""
         text = "\n\n".join(events)
         for u in alerts.recipients(ud, product_id):
-            if alerts.hold_alert(ud, u, text, keyboard, bot_state):
-                continue
-            if keyboard:
-                telegram_io.send_card(u["chat_id"], text, keyboard)
-            else:
-                telegram_io.send_message(u["chat_id"], text)
+            notify_one(u, product_id, text, specs or [], keyboard)
 
     try:
         # --- 1. Telegram commands (added products get scraped on this very run) ---
@@ -359,10 +395,13 @@ def main() -> int:
                     if not args.health and send:
                         events = alerts.offer_events(entry, ex, prev)
                         if events:
-                            notify(product["id"], events)
+                            notify(product["id"], events,
+                                   specs=alerts.offer_event_specs(entry, ex, prev))
                     st.update(price=ex.price, old_price=ex.old_price, in_stock=ex.in_stock,
                               shop=ex.shop, offers=ex.offers, display=ex.display,
                               currency=ex.currency, converted=ex.converted, last_checked=now_iso())
+                    if ex.image and not product.get("image"):
+                        product["image"] = ex.image  # phase 2: harvest once, reuse everywhere
                     st.setdefault("first_seen", now_iso())
                     hist = st.setdefault("history", [])
                     hist.append({"t": now_iso(), "p": ex.price})
@@ -376,21 +415,46 @@ def main() -> int:
                 prev_host = host
                 time.sleep(5)  # politeness gap — gentle on everyone
 
-            # product-level: best price this run drives drop + all-time-low alerts
+            # product-level: best price this run drives drop + all-time-low + target alerts
             best_offer, best = catalog.best_result(results)
-            if best is not None and best_offer is not None:
+            if best is not None and best_offer is not None and best.price is not None:
+                best_price = best.price  # narrowed local: calls below invalidate member narrowing
                 events = []
+                specs = []
                 ev = alerts.product_min_event(product, best_offer, best, product.get("last_min"))
+                sp = alerts.product_min_spec(product, best_offer, best, product.get("last_min"))
                 if ev:
                     events.append(ev)
+                if sp:
+                    specs.append(sp)
                 ev = alerts.atl_update(product, best_offer, best)
+                sp = alerts.atl_spec(product, best_offer, best)
                 if ev:
                     events.append(ev)
+                if sp:
+                    specs.append(sp)
                 product["last_min"] = {"price": best.price, "url": best_offer["url"],
                                        "store": best_offer.get("label") or best_offer["store"]}
                 if events and send and not args.health:
                     # rich card (Q18): Where / Chart / Watch / Mute buttons
-                    notify(product["id"], events, telegram_io.kb_alert(product["id"]))
+                    notify(product["id"], events, specs=specs,
+                           keyboard=telegram_io.kb_alert(product["id"]))
+                # target prices (Q21): personal pings when the best price ≤ a user's target
+                if send and not args.health:
+                    for u in users_mod.active(ud):
+                        # target_status records the hit itself (no double alerts)
+                        if users_mod.target_status(u, product["id"], best_price) != "new-low":
+                            continue
+                        u_target = users_mod.target_for(u, product["id"])
+                        if u_target is None:
+                            continue  # raced clear — nothing to compare
+                        text = alerts.target_event(product, best_price, u_target,
+                                                   best_offer.get("label") or best_offer["store"])
+                        notify_one(u, product["id"], text,
+                                   [alerts.target_spec(product, best_price, u_target,
+                                                       best_offer.get("label")
+                                                       or best_offer["store"])],
+                                   telegram_io.kb_alert(product["id"]))
 
         # --- 3. Reports: per-user personal digests (Q20) + budget (Q38) ---
         hour = datetime.now(UTC).hour
@@ -410,9 +474,10 @@ def main() -> int:
                 ids = users_mod.effective_ids(u, all_ids)
                 if not ids:
                     continue
-                lines = alerts.digest_lines(products, prices, ids)
+                lang = prefs.get("lang") or "en"
+                lines = alerts.digest_lines(products, prices, ids, lang=lang)
                 if u.get("role") == users_mod.ROLE_OWNER:
-                    budget = alerts.budget_line(bot_state.get("usage") or {})
+                    budget = alerts.budget_line(bot_state.get("usage") or {}, lang=lang)
                     if budget:
                         lines.append(budget)
                 telegram_io.send_message(u["chat_id"], "\n".join(lines))

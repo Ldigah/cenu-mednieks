@@ -137,14 +137,18 @@ HELP = (
     "/prices — best price per product (+ % above ATL)\n"
     "/best — deepest discounts vs 30-day average\n"
     "/where &lt;name-part&gt; — all stores + prices for a product\n"
-    "/stats [name-part] — best, ATL, min7/30, avg30\n"
-    "/list — everything tracked\n\n"
+    "/stats [name-part] — best, ATL, min7/30, avg30, volatility, target\n"
+    "/list [#tag] — everything tracked (filter by tag)\n"
+    "/tags — all tags\n"
+    "/search &lt;name&gt; — price-check without tracking (5/day)\n\n"
     "<b>Track</b>\n"
     "/add &lt;name&gt; — I show matches, you pick (or /add &lt;url&gt; [name])\n"
-    "/add-url &lt;url&gt; [name-part] — attach another store\n"
+    "/add_url &lt;url&gt; [name-part] — attach another store\n"
     "/watch [part] / /unwatch &lt;part&gt; — choose what pings you ⭐\n"
     "/mute &lt;part&gt; / /unmute &lt;part&gt; — silence one product\n"
+    "/target &lt;part&gt; &lt;price|off&gt; — ping me when it's under X 🎯\n"
     "/threshold &lt;part&gt; &lt;pct&gt; — drop-alert threshold (default 5%)\n"
+    "/tag &lt;part&gt; #tag / /untag &lt;part&gt; #tag — organize\n"
     "/remove &lt;part&gt; — stop tracking (asks to confirm)\n\n"
     "<b>You</b>\n"
     "/settings — digest, quiet hours, language\n"
@@ -152,8 +156,9 @@ HELP = (
     "/quota — how many products you can still add\n"
     "/whoami — your profile\n"
     "/requests — (owner) approve/decline access requests\n\n"
-    "Alerts: best-price drops ≥ threshold, all-time lows, discounts, restocks. "
-    "Rises are recorded silently. Quiet hours hold alerts until morning.\n"
+    "Alerts: best-price drops ≥ threshold, all-time lows, discounts, restocks, "
+    "target hits. Rises are recorded silently. Quiet hours hold alerts until "
+    "morning.\n"
     "💡 Instant answers here; /add and /chart results arrive with the next "
     "tracker run (~2–5 min when triggered from the app or the Worker)."
 )
@@ -187,11 +192,33 @@ def kb_confirm_remove(slug: str) -> list[list[dict]]:
     ]]
 
 
-def kb_confirm_threshold(slug: str, pct: float) -> list[list[dict]]:
+def kb_confirm_op(key: str, yes: str = "✅ Confirm") -> list[list[dict]]:
+    """Short-key confirmation (phase 2): a mutating op travels as cf:<6-hex key> —
+    always within Telegram's 64-byte callback limit regardless of product id length."""
     return [[
-        {"text": f"✅ Set −{pct:g}%", "callback_data": f"th:{slug}:{pct:g}"},
+        {"text": yes, "callback_data": f"cf:{key}"},
         {"text": "Cancel", "callback_data": "noop"},
     ]]
+
+
+def ask_confirm(chat_id, bot_state: dict, command_text: str, prompt: str,
+                yes: str = "✅ Confirm") -> None:
+    """Register a pending op and send its confirm card (Q31).
+
+    The op dispatches command_text with confirmed=true when the cf:<key> button
+    is tapped — by the Worker (webhook mode) or handle_callback (poll mode).
+    """
+    import secrets
+    key = secrets.token_hex(3)
+    bot_state.setdefault("pending_ops", {})[key] = {
+        "cmd": command_text, "chat_id": chat_id,
+        "created": datetime_now_iso()}
+    send_card(chat_id, prompt, kb_confirm_op(key, yes))
+
+
+def datetime_now_iso() -> str:
+    from datetime import UTC, datetime
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def kb_confirm_check() -> list[list[dict]]:
@@ -201,12 +228,14 @@ def kb_confirm_check() -> list[list[dict]]:
     ]]
 
 
-def kb_candidates(key: str, candidates: list[dict]) -> list[list[dict]]:
-    """Guided /add (Q30): pick from matches, or add the raw query as-is."""
-    kb = [[{"text": f"➕ {c['name'][:50]} — {c['min_price']:.2f} € ({c['count']})",
+def kb_candidates(key: str, candidates: list[dict], mode: str = "add") -> list[list[dict]]:
+    """Guided /add and /search (Q30/Q27): pick from matches, or take the raw query."""
+    icon, bare = ("➕", "Add as-is (search URLs)") if mode == "add" \
+        else ("⭐", "Track as-is (search URLs)")
+    kb = [[{"text": f"{icon} {c['name'][:46]} — {c['min_price']:.2f} € ({c['count']})",
             "callback_data": f"add:{i}:{key}"}]
           for i, c in enumerate(candidates)]
-    kb.append([{"text": "Add as-is (search URLs)", "callback_data": f"add:-1:{key}"}])
+    kb.append([{"text": bare, "callback_data": f"add:-1:{key}"}])
     kb.append([{"text": "Cancel", "callback_data": "noop"}])
     return kb
 
@@ -332,7 +361,32 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict,
         return chat_id
 
     if cmd == "list":
-        _cmd_list(chat_id, products)
+        _cmd_list(chat_id, products, arg)
+        return chat_id
+
+    if cmd == "tags":
+        idx = catalog.tag_index(products)
+        if not idx:
+            send_message(chat_id, "No tags yet — /tag &lt;name-part&gt; #tag to add one.")
+        else:
+            lines = [f"• #{t} ×{n}" for t, n in idx.items()]
+            send_message(chat_id, "🏷 <b>Tags</b>\n" + "\n".join(lines))
+        return chat_id
+
+    if cmd == "tag":
+        _cmd_tag(chat_id, products, user, ud, arg, on=True)
+        return chat_id
+
+    if cmd == "untag":
+        _cmd_tag(chat_id, products, user, ud, arg, on=False)
+        return chat_id
+
+    if cmd == "target":
+        _cmd_target(chat_id, products, prices, bot_state, user, ud, arg, confirmed)
+        return chat_id
+
+    if cmd == "search":
+        _cmd_search(chat_id, products, bot_state, user, arg, add_stager)
         return chat_id
 
     if cmd == "prices":
@@ -356,7 +410,7 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict,
         return chat_id
 
     if cmd == "threshold":
-        _cmd_threshold(chat_id, products, user, ud, arg, confirmed)
+        _cmd_threshold(chat_id, products, bot_state, user, ud, arg, confirmed)
         return chat_id
 
     if cmd == "watch":
@@ -384,7 +438,7 @@ def handle_update(update: dict, products: dict, prices: dict, bot_state: dict,
         return chat_id
 
     if cmd == "stats":
-        _cmd_stats(chat_id, products, prices, arg)
+        _cmd_stats(chat_id, products, prices, arg, user)
         return chat_id
 
     if cmd == "best":
@@ -451,16 +505,28 @@ def _find_one(chat_id, products: dict, part: str) -> dict | None:
 
 # --- read-only commands -----------------------------------------------------
 
-def _cmd_list(chat_id, products: dict) -> None:
-    if not products["products"]:
+def _cmd_list(chat_id, products: dict, arg: str = "") -> None:
+    if arg.strip().startswith("#"):
+        shown = catalog.find_tagged(products, arg)
+        if not shown:
+            send_message(chat_id, f"Nothing tagged {alerts.esc(arg.strip())}. "
+                                  "/tag &lt;name-part&gt; #tag to add one.")
+            return
+    else:
+        shown = products["products"]
+    if not shown:
         send_message(chat_id, "Nothing tracked yet. /add &lt;name&gt; or /add &lt;url&gt;")
         return
     lines = []
-    for i, prod in enumerate(products["products"], 1):
+    for i, prod in enumerate(shown, 1):
         stores_txt = ", ".join(sorted({o["store"] for o in prod["offers"]}))
+        tags_txt = " ".join(f"#{t}" for t in prod.get("tags") or [])
         lines.append(f"{i}. <b>{alerts.esc(prod['name'] or prod['id'])}</b> — "
-                     f"{len(prod['offers'])} store(s): {alerts.esc(stores_txt)}")
-    send_message(chat_id, "<b>Tracked products</b>\n" + "\n".join(lines))
+                     f"{len(prod['offers'])} store(s): {alerts.esc(stores_txt)}"
+                     + (f"  {alerts.esc(tags_txt)}" if tags_txt else ""))
+    head = f"<b>Tracked products</b> {alerts.esc(arg.strip())}\n" \
+        if arg.strip().startswith("#") else "<b>Tracked products</b>\n"
+    send_message(chat_id, head + "\n".join(lines))
 
 
 def _atl_signal(prod: dict, price: float | None) -> str:
@@ -521,7 +587,10 @@ def _cmd_where(chat_id, products: dict, prices: dict, arg: str) -> None:
         send_message(chat_id, "\n".join(lines))
 
 
-def _cmd_stats(chat_id, products: dict, prices: dict, arg: str) -> None:
+DOW_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _cmd_stats(chat_id, products: dict, prices: dict, arg: str, user: dict | None = None) -> None:
     matches = catalog.find_products(products, arg) if arg else products["products"]
     if not matches:
         send_message(chat_id, f"Nothing matches “{alerts.esc(arg)}”.")
@@ -543,6 +612,30 @@ def _cmd_stats(chat_id, products: dict, prices: dict, arg: str) -> None:
                          f"30-day min: {alerts.fmt_eur(s['min30'])}")
         if s["avg30"] is not None:
             lines.append(f"• 30-day avg: {alerts.fmt_eur(s['avg30'])}")
+        # phase 2 buy signals (Q23)
+        signals = []
+        if s.get("vol") is not None:
+            signals.append(f"volatility ±{s['vol']:.1f}%")
+        if s.get("drops30") is not None:
+            signals.append(f"{s['drops30']} drop(s) ≥5%/30d")
+        if s.get("dow") is not None:
+            signals.append(f"cheapest day {DOW_NAMES[s['dow']['day']]} "
+                           f"(avg {alerts.fmt_eur(s['dow']['avg'])})")
+        if signals:
+            lines.append("• " + " · ".join(signals))
+        # the caller's target (Q21)
+        if user is not None:
+            target = users_mod.target_for(user, prod["id"])
+            if target is not None:
+                bp = b["price"]
+                if bp is not None and bp <= target:
+                    lines.append(f"• 🎯 Target {alerts.fmt_eur(target)} — <b>hit!</b>")
+                elif bp is not None:
+                    away = (bp - target) / target * 100
+                    lines.append(f"• 🎯 Target {alerts.fmt_eur(target)} — "
+                                 f"{away:.0f}% away")
+                else:
+                    lines.append(f"• 🎯 Target {alerts.fmt_eur(target)}")
         send_message(chat_id, "\n".join(lines))
 
 
@@ -726,8 +819,8 @@ def _cmd_add_url(chat_id, products: dict, user: dict, ud: dict, arg: str) -> Non
                           f"{alerts.esc(offer['store'])} — checking it this run.{note}")
 
 
-def _cmd_threshold(chat_id, products: dict, user: dict, ud: dict, arg: str,
-                   confirmed: bool) -> None:
+def _cmd_threshold(chat_id, products: dict, bot_state: dict, user: dict, ud: dict,
+                   arg: str, confirmed: bool) -> None:
     """/threshold <name-part> <pct> — per-product drop-alert threshold (Q31: confirm)."""
     parts = arg.rsplit(maxsplit=1)
     if len(parts) != 2:
@@ -755,13 +848,105 @@ def _cmd_threshold(chat_id, products: dict, user: dict, ud: dict, arg: str,
         send_message(chat_id, "⛔ Only the owner or whoever added this product can change it.")
         return
     if not confirmed:
-        send_card(chat_id,
-                  f"🎚 Set drop threshold for <b>{alerts.esc(prod['name'])}</b> "
-                  f"to −{pct:g}%?", kb_confirm_threshold(prod["id"], pct))
+        ask_confirm(chat_id, bot_state,
+                    f"/threshold {prod['id']} {pct:g}",
+                    f"🎚 Set drop threshold for <b>{alerts.esc(prod['name'])}</b> "
+                    f"to −{pct:g}%?", f"✅ Set −{pct:g}%")
         return
     prod["threshold_pct"] = pct
     send_message(chat_id, f"🎚 <b>{alerts.esc(prod['name'])}</b>: drop alerts now "
                           f"fire at −{pct:g}%.")
+
+
+def _cmd_target(chat_id, products: dict, prices: dict, bot_state: dict, user: dict,
+                ud: dict, arg: str, confirmed: bool) -> None:
+    """/target <name-part> <price|off> — ping me when the best price ≤ X (Q21)."""
+    parts = arg.rsplit(maxsplit=1)
+    if len(parts) != 2:
+        send_message(chat_id, "Usage: /target &lt;name-part&gt; &lt;price|off&gt;  "
+                              "(e.g. /target jbl 65 or /target jbl off)")
+        return
+    part, price_raw = parts[0].strip(), parts[1].strip().replace("€", "").strip()
+    matches = catalog.find_products(products, part)
+    if not matches:
+        send_message(chat_id, f"Nothing matches “{alerts.esc(part)}”.")
+        return
+    if len(matches) > 1:
+        listing = "\n".join(f"• {alerts.esc(p['name'] or p['id'])}" for p in matches)
+        send_message(chat_id, f"Multiple matches — be more specific:\n{listing}")
+        return
+    prod = matches[0]
+    if price_raw.lower() in ("off", "none", "0", "clear"):
+        if users_mod.clear_target(user, prod["id"]):
+            send_message(chat_id, f"🎯 Target cleared for "
+                                  f"<b>{alerts.esc(prod['name'])}</b>.")
+        else:
+            send_message(chat_id, "You had no target on that product.")
+        return
+    price = commands.parse_price_arg(price_raw)
+    if price is None or not 0.5 <= price <= 100000:
+        send_message(chat_id, f"“{alerts.esc(price_raw)}” is not a price in EUR "
+                              "(0.5–100 000).")
+        return
+    current = users_mod.target_for(user, prod["id"])
+    if current is not None and abs(current - price) > 0.005 and not confirmed:
+        ask_confirm(chat_id, bot_state,
+                    f"/target {prod['id']} {price:g}",
+                    f"🎯 Change your target for <b>{alerts.esc(prod['name'])}</b> from "
+                    f"{alerts.fmt_eur(current)} to <b>{alerts.fmt_eur(price)}</b>?",
+                    f"✅ Set {alerts.fmt_eur(price)}")
+        return
+    users_mod.set_target(user, prod["id"], price)
+    users_mod.watch(user, prod["id"])  # a target you don't hear about is useless
+    _, best_st = catalog.best_state(prod, prices)
+    now_p = best_st.get("price") if best_st else None
+    if now_p is not None and now_p <= price:
+        send_message(chat_id, f"🎯 <b>{alerts.esc(prod['name'])}</b>: target "
+                              f"{alerts.fmt_eur(price)} set — and it's ALREADY there "
+                              f"({alerts.fmt_eur(now_p)})! Watch your inbox.")
+    else:
+        away = f" ({(now_p - price) / price * 100:.0f}% away)" if now_p is not None else ""
+        send_message(chat_id, f"🎯 <b>{alerts.esc(prod['name'])}</b>: I'll ping you when "
+                              f"the best price drops to ≤ {alerts.fmt_eur(price)}{away}.")
+
+
+def _cmd_tag(chat_id, products: dict, user: dict, ud: dict, arg: str, on: bool) -> None:
+    """/tag <name-part> #tag — organize the shared catalog (Q24). Owner or adder."""
+    parts = arg.split()
+    if len(parts) != 2 or not parts[1].startswith("#"):
+        send_message(chat_id, f"Usage: /{'tag' if on else 'untag'} &lt;name-part&gt; #tag")
+        return
+    prod = _find_one(chat_id, products, parts[0])
+    if prod is None:
+        return
+    if not _can_touch(user, prod):
+        send_message(chat_id, "⛔ Only the owner or whoever added this product can tag it.")
+        return
+    changed = catalog.set_tag(prod, parts[1]) if on else catalog.unset_tag(prod, parts[1])
+    if changed:
+        tags_txt = " ".join(f"#{t}" for t in prod.get("tags") or [])
+        verb = "Tagged" if on else "Removed tag"
+        send_message(chat_id, f"🏷 {verb} <b>{alerts.esc(prod['name'])}</b>"
+                              + (f" — now: {alerts.esc(tags_txt)}" if tags_txt else "."))
+    else:
+        send_message(chat_id, "Nothing to change.")
+
+
+def _cmd_search(chat_id, products: dict, bot_state: dict, user: dict, arg: str,
+                add_stager) -> None:
+    """/search <name> — one-off aggregator price check; [Track] to keep one (Q27)."""
+    if not arg:
+        send_message(chat_id, "Usage: /search &lt;product-name&gt;")
+        return
+    query = arg.strip()
+    if any(p["id"] == catalog.slugify(query) for p in products["products"]):
+        send_message(chat_id, f"Already tracking <b>{alerts.esc(query)}</b> — "
+                              "/where for its stores.")
+        return
+    if add_stager is None:
+        send_message(chat_id, "Search runs on the tracker — try /add (guided) for now.")
+        return
+    add_stager(chat_id, query, user, bot_state, search_mode=True)
 
 
 def _cmd_watch(chat_id, products: dict, user: dict, arg: str) -> None:
@@ -927,9 +1112,26 @@ def handle_callback(cb: dict, products: dict, prices: dict, bot_state: dict,
         _cmd_remove(chat_id, products, user, ud, rest, confirmed=True)
         return chat_id
 
-    if action == "th":
+    if action == "th":  # legacy confirm cards (phase 1) — kept until old chats clear
         slug, _, pct_raw = rest.partition(":")
-        _cmd_threshold(chat_id, products, user, ud, f"{slug} {pct_raw}", confirmed=True)
+        _cmd_threshold(chat_id, products, bot_state, user, ud, f"{slug} {pct_raw}",
+                       confirmed=True)
+        return chat_id
+
+    if action == "cf":
+        # short-key confirmation (phase 2): run the stored command as confirmed
+        ops = bot_state.get("pending_ops") or {}
+        op = ops.get(rest)
+        if op is None:
+            send_message(chat_id, "That confirmation expired — run the command again.")
+            return chat_id
+        if op.get("chat_id") not in (None, chat_id) and not users_mod.is_owner(ud, chat_id):
+            return chat_id  # only the requester (or owner) may confirm
+        ops.pop(rest, None)
+        confirmed_update = {"update_id": 0, "confirmed": True,
+                            "message": {"chat": {"id": chat_id},
+                                        "text": op.get("cmd") or ""}}
+        handle_update(confirmed_update, products, prices, bot_state, ud)
         return chat_id
 
     if action == "chk":

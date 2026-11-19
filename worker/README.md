@@ -66,6 +66,15 @@ poll for commands. The flow is therefore:
 Inline queries must be enabled once in BotFather (`/setinline`) or Telegram sends
 `@bot query` as a normal message instead of an inline query.
 
+## Mini App API (phase 2)
+
+`POST /api/me` `{initData}` → per-user view (role, watchlist, muted, targets,
+quota_left). `POST /api/toggle` `{initData, action: "watch"|"mute", pid}` →
+direct users.json write, returns `{ok, on}`. `POST /api/cmd` `{initData,
+cmd: "threshold"|"target"|"remove", pid, pct?|price?}` → confirmed dispatch to
+CI. All three verify the Telegram initData HMAC against the bot token (24 h
+freshness), gate on membership, and answer CORS only to the Pages origin.
+
 ## Verify
 
 - Telegram: `/prices` → instant reply.

@@ -28,6 +28,7 @@ class Extraction:
     display: str | None = None   # raw price text as shown on the page
     converted: bool = False      # True if price was converted to EUR
     source: str = ""             # "jsonld" | "css" | "jsonld-aggregate" | "regex"
+    image: str | None = None     # product photo URL (JSON-LD image / og:image) — phase 2
 
 
 PRICE_RE = re.compile(r"\d[\d\s\u00a0.,]*")
@@ -99,10 +100,23 @@ def _is_offer(node: dict) -> bool:
     return False
 
 
+def _image_of(node: dict) -> str | None:
+    """schema.org image: str, list of str, or ImageObject — first http(s) URL."""
+    img = node.get("image")
+    candidates = img if isinstance(img, list) else [img]
+    for c in candidates:
+        if isinstance(c, dict):
+            c = c.get("url") or c.get("contentUrl")
+        if isinstance(c, str) and c.startswith(("http://", "https://")):
+            return c
+    return None
+
+
 def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
     """Cheapest price from schema.org JSON-LD — Product→offers or standalone Offer blocks."""
     best = None
     best_price: float | None = None
+    product_image: str | None = None
     for tag in soup.find_all("script", type="application/ld+json"):
         raw = tag.string or tag.get_text()
         if not raw:
@@ -112,6 +126,10 @@ def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
         for node in iter_nodes(data):
+            t = node.get("@type")
+            if product_image is None and (t == "Product" or
+                                          isinstance(t, list) and "Product" in t):
+                product_image = _image_of(node)
             offers = node.get("offers")
             if offers:
                 offers_list = offers if isinstance(offers, list) else [offers]
@@ -135,6 +153,7 @@ def jsonld_extraction(soup: BeautifulSoup) -> Extraction | None:
                     best_price = p
     if best:
         best.source = "jsonld"
+        best.image = product_image
     return best
 
 
@@ -170,4 +189,10 @@ def css_extraction(soup: BeautifulSoup, selectors: dict) -> Extraction:
     if offers_txt:
         m = re.search(r"\d+", offers_txt.replace(" ", "").replace("\u00a0", ""))
         ex.offers = int(m.group()) if m else None
+    og = soup.find("meta", attrs={"property": "og:image"}) \
+        or soup.find("meta", attrs={"name": "og:image"})
+    if og:
+        content = og.get("content") or ""
+        if content.startswith(("http://", "https://")):
+            ex.image = content
     return ex

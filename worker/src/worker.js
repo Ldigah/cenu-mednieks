@@ -1,31 +1,36 @@
 /**
- * Cenu Mednieks — Telegram webhook receiver (Cloudflare Worker, free tier).
+ * Cenu Mednieks — Telegram webhook + Mini App API (Cloudflare Worker, free tier).
  *
- * Read-only commands (/list /prices /where /stats /best /help /ping) are answered
- * in ~1 s from a 60-second-cached copy of the state gist. Mutating commands
- * (/add /add-url /threshold /remove /chart /check) trigger a full GitHub Actions
- * run via repository_dispatch — the run processes them with the real Python
- * logic (the command text travels in client_payload.commands, optionally with
- * confirmed:true when it came from an inline button).
+ * Telegram webhook: read-only commands answered instantly from a 60 s cached
+ * copy of the state gist; mutating commands dispatch a full Actions run via
+ * repository_dispatch (command text travels in client_payload.commands,
+ * optionally confirmed:true when it came from a button). Callback taps
+ * (approvals, watch/mute, settings, cf: confirmations) are handled directly.
  *
- * Multi-user (DECISIONS.md 2026-11-19, the 40 questions): membership lives in
- * users.json — approved users only (Q1). Strangers get an intro + [Request
- * access]; the owner approves/declines with one tap (Q5/Q35). Watch/unwatch,
- * mute and settings callbacks write users.json directly (per-record merge,
- * Q15/Q32); alerts themselves are sent by the CI run. Run-triggering commands
- * from members are cooldown-limited in KV (Q34); /check stays owner-only.
+ * Mini App API (phase 2, Q9–Q15): POST /api/me|toggle|cmd with Telegram
+ * initData — HMAC-verified against the bot token (Q10) — so the app gets a
+ * per-user view and can toggle watch/mute (direct users.json writes) or queue
+ * threshold/target/remove changes (confirmed dispatches). CORS is limited to
+ * the Pages origin; the public data.json contains no user data (Q33).
  *
- * Inline queries (@bot <name>) get live price cards in any chat.
+ * Membership lives in users.json (approved users only, Q1); OWNER_CHAT_ID is
+ * the bootstrap fallback. Members get a 5-min run cooldown + 5 /search per
+ * day (Q34); /check stays owner-only.
  */
 
 const API = "https://api.telegram.org";
-const READ_ONLY = new Set(["start", "help", "list", "prices", "where", "stats", "best"]);
+const READ_ONLY = new Set(["start", "help", "list", "prices", "where", "stats", "best", "tags"]);
 // Mutating chat commands (dispatch a run; CI enforces quota/permissions again)
-const MUTATING = new Set(["add", "add_url", "threshold", "remove", "chart", "check", "pick"]);
-const COOLDOWN_S = 300; // Q34: one run-triggering command per member per 5 min
+const MUTATING = new Set(["add", "add_url", "threshold", "remove", "chart", "check", "pick",
+                          "search", "target", "tag", "untag"]);
+const COOLDOWN_S = 300;    // Q34: one run-triggering command per member per 5 min
+const SEARCH_PER_DAY = 5;  // Q27
+const GATES = ["github.io", "workers.dev", "localhost", "127.0.0.1"];
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/")) return handleApi(request, env, url);
     if (request.method !== "POST") {
       return new Response("cenu-mednieks webhook — POST only", { status: 405 });
     }
@@ -67,7 +72,6 @@ async function handle(update, env) {
         : "⛔ This account is not allowed to use the bot.", env);
     }
 
-    // read-only: instant from the cache
     if (READ_ONLY.has(cmd)) {
       const state = await getState(env);
       if (!state) return send(chatId, "⚠️ State gist unavailable — try again soon.", env);
@@ -75,9 +79,7 @@ async function handle(update, env) {
     }
 
     if (cmd === "ping") {
-      if (member.role !== "owner") {
-        return send(chatId, "⛔ Owner only.", env);
-      }
+      if (member.role !== "owner") return send(chatId, "⛔ Owner only.", env);
       return send(chatId, await selfTest(env), env);
     }
 
@@ -96,6 +98,141 @@ async function handle(update, env) {
 }
 
 // ---------------------------------------------------------------------------
+// Mini App API (Q9–Q15) — initData HMAC auth, no cookies, no user data leaks
+// ---------------------------------------------------------------------------
+
+function corsHeaders(request) {
+  const origin = request.headers.get("origin") || "";
+  let allow = null;
+  if (!origin) allow = "*";                       // same-origin / curl
+  else {
+    try {
+      const host = new URL(origin).hostname;
+      if (GATES.some((g) => host === g || host.endsWith("." + g))) allow = origin;
+    } catch { /* junk origin → no CORS */ }
+  }
+  return allow == null ? {} : {
+    "access-control-allow-origin": allow,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "vary": "Origin",
+  };
+}
+
+function jsonResp(obj, status, cors) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: Object.assign({ "content-type": "application/json" }, cors || {}),
+  });
+}
+
+async function handleApi(request, env, url) {
+  const cors = corsHeaders(request);
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  if (request.method !== "POST") {
+    return jsonResp({ ok: false, error: "POST only" }, 405, cors);
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return jsonResp({ ok: false, error: "bad json" }, 400, cors);
+  }
+  const identity = body && body.initData
+    ? await verifyInitData(body.initData, env.TELEGRAM_BOT_TOKEN) : null;
+  if (!identity) return jsonResp({ ok: false, error: "unauthorized" }, 401, cors);
+  const member = await memberOf(env, identity.chatId);
+  if (!member || member.status !== "active") {
+    return jsonResp({ ok: false, error: "not an active member" }, 403, cors);
+  }
+
+  if (url.pathname === "/api/me") {
+    const state = state_of(await getState(env));
+    const user = Object.assign({}, member, { quota_left: quotaLeft(member, state.products) });
+    return jsonResp({ ok: true, user }, 200, cors);
+  }
+
+  if (url.pathname === "/api/toggle") {
+    const action = body.action === "mute" ? "mute" : "watch";
+    const prod = findProduct(state_of(await getState(env)), body.pid || "");
+    if (!prod) return jsonResp({ ok: false, error: "unknown product" }, 404, cors);
+    let on = false;
+    await updateUsers(env, (ud) => {
+      const u = (ud.users || []).find((x) => String(x.chat_id) === String(member.chat_id));
+      if (!u) return ud;
+      const list = action === "watch" ? (u.watchlist = u.watchlist || [])
+                                      : (u.muted = u.muted || []);
+      const i = list.indexOf(prod.id);
+      if (i >= 0) list.splice(i, 1);
+      else list.push(prod.id);
+      on = i < 0;
+      if (on && action === "watch") {  // watching clears a mute (same as ⭐ in chat)
+        const m = u.muted || [];
+        const j = m.indexOf(prod.id);
+        if (j >= 0) m.splice(j, 1);
+      }
+      return ud;
+    });
+    return jsonResp({ ok: true, on }, 200, cors);
+  }
+
+  if (url.pathname === "/api/cmd") {
+    const state = state_of(await getState(env));
+    const prod = findProduct(state, body.pid || "");
+    if (!prod) return jsonResp({ ok: false, error: "unknown product" }, 404, cors);
+    const mine = member.role === "owner" || prod.added_by == null
+      || String(prod.added_by) === String(member.chat_id);
+    if (!mine) return jsonResp({ ok: false, error: "not allowed" }, 403, cors);
+    let text = null;
+    if (body.cmd === "remove") text = `/remove ${prod.id}`;
+    else if (body.cmd === "threshold") {
+      const pct = Number(body.pct);
+      if (!(pct >= 0.1 && pct <= 90)) return jsonResp({ ok: false, error: "bad pct" }, 400, cors);
+      text = `/threshold ${prod.id} ${pct}`;
+    } else if (body.cmd === "target") {
+      const price = Number(body.price);
+      if (!(price >= 0.5 && price <= 100000)) {
+        return jsonResp({ ok: false, error: "bad price" }, 400, cors);
+      }
+      text = `/target ${prod.id} ${price}`;
+    } else return jsonResp({ ok: false, error: "unknown cmd" }, 400, cors);
+    if (member.role !== "owner") {
+      const cd = await env.CACHE.get(`cd:${member.chat_id}`);
+      if (cd) return jsonResp({ ok: false, error: "cooldown" }, 429, cors);
+      await env.CACHE.put(`cd:${member.chat_id}`, String(Date.now()),
+                          { expirationTtl: COOLDOWN_S });
+    }
+    const ok = await dispatch(env, text, identity.chatId, true);
+    return jsonResp(ok ? { ok: true, queued: true }
+                       : { ok: false, error: "dispatch failed" }, ok ? 200 : 502, cors);
+  }
+  return jsonResp({ ok: false, error: "not found" }, 404, cors);
+}
+
+/** Telegram Mini App initData validation: hex(HMAC(HMAC(bot, "WebAppData"), data)) */
+async function verifyInitData(initData, botToken) {
+  const parts = String(initData || "").split("&");
+  const hashPart = parts.find((p) => p.startsWith("hash="));
+  if (!hashPart || !botToken) return null;
+  const hash = hashPart.slice(5);
+  const dataCheck = parts.filter((p) => p !== hashPart).sort().join("\n");
+  const enc = new TextEncoder();
+  const keyBot = await crypto.subtle.importKey("raw", enc.encode(botToken),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const secret = await crypto.subtle.sign("HMAC", keyBot, enc.encode("WebAppData"));
+  const key = await crypto.subtle.importKey("raw", secret,
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(dataCheck));
+  const hex = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (hex !== hash) return null;
+  const params = new URLSearchParams(initData);
+  const authDate = Number(params.get("auth_date") || 0);
+  if (!authDate || Date.now() / 1000 - authDate > 86400) return null;  // 24 h freshness
+  let user = null;
+  try { user = JSON.parse(params.get("user") || "null"); } catch { /* no user */ }
+  if (!user || !user.id) return null;
+  return { chatId: user.id, name: user.first_name || "", username: user.username || "" };
+}
+
+// ---------------------------------------------------------------------------
 // Membership (users.json in the gist; OWNER_CHAT_ID as the bootstrap fallback)
 // ---------------------------------------------------------------------------
 
@@ -108,7 +245,7 @@ async function memberOf(env, chatId) {
   if (u) return u;
   if (env.OWNER_CHAT_ID && String(chatId) === String(env.OWNER_CHAT_ID)) {
     return { chat_id: chatId, name: "Owner", role: "owner", status: "active",
-             watch_all: true, watchlist: [], muted: [],
+             watch_all: true, watchlist: [], muted: [], targets: {},
              prefs: { digest: true, digest_hour_utc: 21, quiet: "off", lang: "en" } };
   }
   return null;
@@ -123,28 +260,41 @@ function quotaLeft(member, products) {
 
 async function gateMutation(env, member, cmd, arg, state) {
   // Cooldown (Q34): one dispatch per member per 5 min — the owner is trusted.
-  if (member.role !== "owner") {
+  if (member.role !== "owner" && cmd !== "search") {
     const cd = await env.CACHE.get(`cd:${member.chat_id}`);
     if (cd) return "⏱ Easy there — one run-triggering command per 5 minutes.";
     await env.CACHE.put(`cd:${member.chat_id}`, String(Date.now()), { expirationTtl: COOLDOWN_S });
   }
   if (cmd === "check") return member.role === "owner"
     ? null : "⛔ Owner only — /check triggers a full paid run.";
+  if (cmd === "search") {
+    if (member.role !== "owner") {
+      const day = new Date().toISOString().slice(0, 10);
+      const key = `sr:${member.chat_id}:${day}`;
+      const n = Number(await env.CACHE.get(key) || 0);
+      if (n >= SEARCH_PER_DAY) {
+        return `🔎 /search limit reached today (${SEARCH_PER_DAY}/day) — /add is unlimited.`;
+      }
+      await env.CACHE.put(key, String(n + 1), { expirationTtl: 90000 });
+    }
+    if (!arg.trim()) return "Usage: /search <name>";
+    return null;
+  }
   if (cmd === "add" || cmd === "add_url") {
     const q = quotaLeft(member, state.products);
     if (q !== null && q <= 0) return "📦 Quota reached — ask the owner to raise it.";
     return null;
   }
-  if (cmd === "remove" || cmd === "threshold") {
-    const part = (arg.split(/[ ]+/)[0] || "").toLowerCase();
+  if (cmd === "remove" || cmd === "threshold" || cmd === "target"
+      || cmd === "tag" || cmd === "untag") {
     const prod = findProduct(state, arg);
     if (prod) {
       const mine = member.role === "owner"
         || String(prod.added_by) === String(member.chat_id)
         || prod.added_by == null;
       if (!mine) return "⛔ Only the owner or whoever added this product can change it.";
-    } else if (!part) {
-      return "Usage: /" + cmd + " <name-part>";
+    } else if (!arg.split(/\s+/)[0]) {
+      return "Usage: /" + cmd + " <name-part> ...";
     }
     return null; // unknown name-parts are handled (with a real reply) by the CI run
   }
@@ -152,10 +302,11 @@ async function gateMutation(env, member, cmd, arg, state) {
 }
 
 function findProduct(state, arg) {
-  const part = (arg || "").toLowerCase().trim();
+  const part = (arg || "").toLowerCase().trim().replace(/^#/, "");
   const prods = (state.products && state.products.products) || [];
   if (!part) return null;
   return prods.find((p) => `${p.id} ${p.name}`.toLowerCase().includes(part)
+    || (p.tags || []).some((x) => x === part)
     || (p.offers || []).some((o) => o.url.toLowerCase().includes(part))) || null;
 }
 
@@ -232,12 +383,16 @@ async function handleCallback(cb, env) {
     let ok = false;
     await updateUsers(env, (ud) => {
       const u = (ud.users || []).find((x) => String(x.chat_id) === String(target));
-      if (u && u.status === "pending") { u.status = action === "apr" ? "active" : "blocked"; ok = true; }
+      if (u && u.status === "pending") {
+        u.status = action === "apr" ? "active" : "blocked";
+        ok = true;
+      }
       return ud;
     });
     if (!ok) return answer("Request is gone.");
     await answer(action === "apr" ? "Approved!" : "Declined.");
-    await send(chatId, action === "apr" ? `✅ Approved user ${target}.` : `❌ Declined user ${target}.`, env);
+    await send(chatId, action === "apr" ? `✅ Approved user ${target}.`
+                                        : `❌ Declined user ${target}.`, env);
     if (action === "apr") {
       return send(target, "🎉 You're in!\n\nInstant: /prices /best /where /stats /list\n"
         + "Track: /add <name> (pick from matches) · /watch <part> ⭐\n"
@@ -303,10 +458,25 @@ async function handleCallback(cb, env) {
     return send(chatId, answerReadOnly("where", prod.id, state_of(state)), env);
   }
 
+  if (action === "cf") {
+    // short-key confirmation (phase 2): dispatch the stored command as confirmed
+    const state = await getState(env);
+    const op = ((state.bot_state || {}).pending_ops || {})[rest];
+    if (!op) return answer("Expired — run the command again.");
+    if (op.chat_id != null && String(op.chat_id) !== String(chatId)
+        && member.role !== "owner") return answer("Not yours to confirm.");
+    await answer("Queued a run — results in ~2–5 min.");
+    const ok = await dispatch(env, op.cmd, chatId, true);
+    if (!ok) {
+      await send(chatId, "⚠️ Could not trigger a run — check the Worker's GH_TOKEN.", env);
+    }
+    return;
+  }
+
   // run-needing actions → dispatch with confirmed:true (CI skips re-confirmation)
   const confirmedMap = { ch: `/chart ${rest}`, ok: `/remove ${rest}`, chk: "/check",
                          add: null, th: null };
-  if (action === "th") {
+  if (action === "th") {  // legacy phase-1 cards still floating in chats
     const [slug, pct] = rest.split(":");
     confirmedMap.th = `/threshold ${slug} ${pct}`;
   }
@@ -384,10 +554,11 @@ function answerReadOnly(cmd, arg, { products, prices }) {
   const prods = products.products || [];
   const fmt = (v) => (v == null ? "n/a" : `${Number(v).toFixed(2)} €`);
   const match = (part) => {
-    part = (part || "").toLowerCase().trim();
+    part = (part || "").toLowerCase().trim().replace(/^#/, "");
     if (!part) return prods;
     return prods.filter((p) =>
       `${p.id} ${p.name}`.toLowerCase().includes(part) ||
+      (p.tags || []).some((x) => x === part) ||
       p.offers.some((o) => o.url.toLowerCase().includes(part)));
   };
 
@@ -395,19 +566,32 @@ function answerReadOnly(cmd, arg, { products, prices }) {
     return [
       "🤖 Cenu Mednieks — price tracker",
       "",
-      "Instant here: /list /prices /where /stats /best",
-      "Run-triggered (~2–5 min): /add /add-url /threshold /remove /chart /check",
+      "Instant here: /list /prices /where /stats /best /tags",
+      "Run-triggered (~2–5 min): /add /add_url /threshold /target /remove /chart /check /search",
       "",
-      "Alerts on drops, all-time lows, discounts and restocks — only for the",
-      "products on your watchlist (/watch). Owner approves access requests.",
+      "Alerts on drops, all-time lows, discounts, restocks and target hits —",
+      "only for the products on your watchlist (/watch). Owner approves access.",
     ].join("\n");
   }
 
+  if (cmd === "tags") {
+    const idx = {};
+    for (const p of prods) for (const t of p.tags || []) idx[t] = (idx[t] || 0) + 1;
+    const keys = Object.keys(idx).sort();
+    if (!keys.length) return "No tags yet — /tag <name-part> #tag to add one.";
+    return "🏷 Tags:\n" + keys.map((t) => `#${t} ×${idx[t]}`).join("\n");
+  }
+
   if (cmd === "list") {
-    if (!prods.length) return "Nothing tracked yet.";
-    return "Tracked products:\n" + prods.map((p, i) =>
+    const shown = arg.startsWith("#")
+      ? prods.filter((p) => (p.tags || []).includes(arg.slice(1).toLowerCase()))
+      : prods;
+    if (!shown.length) return arg.startsWith("#")
+      ? `Nothing tagged ${arg}.` : "Nothing tracked yet.";
+    return "Tracked products:\n" + shown.map((p, i) =>
       `${i + 1}. ${esc(p.name || p.id)} — ${p.offers.length} store(s): ` +
-      [...new Set(p.offers.map((o) => o.store))].sort().join(", ")).join("\n");
+      [...new Set(p.offers.map((o) => o.store))].sort().join(", ") +
+      ((p.tags || []).length ? "  " + p.tags.map((t) => "#" + t).join(" ") : "")).join("\n");
   }
 
   const bestOf = (p) => {
@@ -462,13 +646,19 @@ function answerReadOnly(cmd, arg, { products, prices }) {
       const stats = productStats(p, prices);
       if (cmd === "stats") {
         const lines = [`📊 ${esc(p.name || p.id)} (${stats.stores} stores, ${stats.points} obs)`];
-        if (stats.best.price != null)
+        if (stats.best.price != null) {
           lines.push(`• Best now: ${fmt(stats.best.price)} at ${esc(stats.best.store || "?")}` +
             atlSignal(p, stats.best.price));
-        if (stats.atl && stats.atl.price != null)
+        }
+        if (stats.atl && stats.atl.price != null) {
           lines.push(`• All-time low: ${fmt(stats.atl.price)} (${String(stats.atl.date).slice(0, 10)})`);
+        }
         if (stats.min7 != null) lines.push(`• 7-day min: ${fmt(stats.min7)} · 30-day min: ${fmt(stats.min30)}`);
         if (stats.avg30 != null) lines.push(`• 30-day avg: ${fmt(stats.avg30)}`);
+        const sig = [];
+        if (stats.vol != null) sig.push(`volatility ±${stats.vol}%`);
+        if (stats.drops30 != null) sig.push(`${stats.drops30} drops ≥5%/30d`);
+        if (sig.length) lines.push("• " + sig.join(" · "));
         scored.push(lines.join("\n"));
       } else if (stats.best.price != null && stats.avg30 > 0) {
         scored.push({ depth: (stats.avg30 - stats.best.price) / stats.avg30 * 100, p, stats });
@@ -507,12 +697,25 @@ function productStats(p, prices) {
     const vals = pts.filter(([t]) => t >= now - seconds).map(([, v]) => v);
     return vals.length ? op(vals) : null;
   };
+  // volatility: stdev % of mean over 30d (mirror of catalog.volatility)
+  let vol = null;
+  {
+    const vals = pts.filter(([t]) => t >= now - 30 * 86400).map(([, v]) => v);
+    if (vals.length >= 6) {
+      const m = vals.reduce((a, b) => a + b, 0) / vals.length;
+      if (m > 0) {
+        const varr = vals.reduce((a, b) => a + (b - m) * (b - m), 0) / vals.length;
+        vol = Math.round(Math.sqrt(varr) / m * 1000) / 10;
+      }
+    }
+  }
   return {
     best: { price: best, store: bo ? (bo.label || bo.store) : null },
     atl: p.atl || null,
     min7: win(7 * 86400, Math.min.bind(Math)),
     min30: win(30 * 86400, Math.min.bind(Math)),
     avg30: win(30 * 86400, (v) => Math.round(v.reduce((a, b) => a + b, 0) / v.length * 100) / 100),
+    vol,
     points: pts.length,
     stores: (p.offers || []).length,
   };
@@ -524,7 +727,8 @@ async function handleInline(iq, env) {
   const q = (iq.query || "").toLowerCase().trim();
   if (state) {
     for (const p of state.products.products || []) {
-      if (q && !(p.name || "").toLowerCase().includes(q) && !p.id.includes(q)) continue;
+      if (q && !(p.name || "").toLowerCase().includes(q) && !p.id.includes(q)
+          && !(p.tags || []).some((x) => x.includes(q))) continue;
       const stats = productStats(p, state.prices);
       if (results.length >= 12) break;
       const bp = stats.best.price;
@@ -533,18 +737,24 @@ async function handleInline(iq, env) {
         : `${p.name} — no data yet`;
       const atl = p.atl && p.atl.price != null;
       const atlTxt = atl ? ` · ATL ${p.atl.price.toFixed(2)} €` : "";
+      const above = atl && bp != null && bp > p.atl.price
+        ? ` (+${Math.round((bp - p.atl.price) / p.atl.price * 100)}% above ATL)` : "";
       const text = `🛒 ${p.name}\n` + (bp != null
-        ? `Best now: ${bp.toFixed(2)} € at ${stats.best.store}` +
-          (atl && bp > p.atl.price
-            ? ` (+${Math.round((bp - p.atl.price) / p.atl.price * 100)}% above ATL)` : "") +
-          `${atlTxt}\n${stats.stores} stores tracked`
+        ? `Best now: ${bp.toFixed(2)} € at ${stats.best.store}${above}${atlTxt}\n` +
+          `${stats.stores} stores tracked · open the app for charts & watch buttons`
         : "Waiting for the next run…");
+      const pages = env.PAGES_URL || "https://ldigah.github.io/cenu-mednieks/";
       results.push({
         type: "article",
         id: p.id,
         title,
         description: `${stats.stores} stores${atlTxt}`,
         input_message_content: { message_text: text },
+        reply_markup: { inline_keyboard: [[
+          { text: "🌐 App", url: `${pages}?p=${p.id}` },
+          { text: "⭐ Watch", callback_data: `wt:${p.id}` },
+        ]] },
+        thumb_url: p.image || undefined,
       });
     }
   }
@@ -646,11 +856,13 @@ async function getState(env) {
     const text = f.truncated ? await (await fetch(f.raw_url)).text() : (f.content || "");
     try { return JSON.parse(text); } catch { return null; }
   };
-  const [products, prices, users] = await Promise.all([
-    readJson("products.json"), readJson("prices.json"), readJson("users.json"),
+  const [products, prices, users, botState] = await Promise.all([
+    readJson("products.json"), readJson("prices.json"),
+    readJson("users.json"), readJson("bot_state.json"),
   ]);
   if (!products) return null;
-  const state = { products, prices: prices || {}, users: users || { users: [] } };
+  const state = { products, prices: prices || {}, users: users || { users: [] },
+                  bot_state: botState || {} };
   await env.CACHE.put("state", JSON.stringify(state), { expirationTtl: 60 });
   return state;
 }

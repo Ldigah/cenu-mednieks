@@ -22,3 +22,5 @@ GIST_ID = "4130820d0e33c4c554d328d81c1327da"
 REPO = "Ldigah/cenu-mednieks"
 # run-triggering commands are accepted only from this Telegram chat id:
 OWNER_CHAT_ID = "497422706"
+# app deep links in inline results point here:
+PAGES_URL = "https://ldigah.github.io/cenu-mednieks/"
