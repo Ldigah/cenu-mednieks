@@ -182,7 +182,7 @@ The weekly report listed 5 of 9 offers failing. They were four unrelated problem
 | amazon.pl failing ~half the runs | always a bare `wait_for_selector` timeout (30 of 30 Amazon failures). Reproduced cause: after clicking through Amazon's bot wall, Playwright is left on the storefront root | click through, then re-navigate to the deep link; `api_fallback` on the preset rescues a still-blocked attempt with one plain ScraperAPI fetch (5 credits) |
 | salidzini.lv failing on ~1 call in 4 | an LV exit still returns the Turnstile page as HTTP 200 | `fetch_scraperapi` retries on a fresh exit (up to 2×) |
 | `lenovo thinkpad t16 gen4` never had a price | bad query: `gen4` matched nothing on ceno.lv, and the `lenovo thinkpad t16 …` form resolves to salidzini's hCaptcha-walled group page | live catalog only — offers repointed at `ThinkPad T16 Gen 4` (salidzini: `… 16GB` to keep accessories out) |
-| false "new best" alerts (found on the way, not reported) | the drop alert compares against last run's best. When the cheapest source fails a run, the dearer store that stands in becomes the reference, and the source's unchanged return reads as a drop (JBL: 73 € after a run recorded at 77 € = −5.2%) | the alert also gets the winner's own last price (`own_prev`) and stays silent when that hasn't dropped |
+| false "new best" alerts (found on the way, not reported) | the drop alert compares against last run's best. Whenever a run is partial — the cheapest source failed, or the daily cadence skipped it — the dearer store that stands in becomes the reference: the source's unchanged return read as a drop (JBL: 73 € after a run recorded at 77 € = −5.2%), and a smaller real drop cleared the threshold against it | compare like with like: the lowest last-seen price among the offers scraped in this run (`catalog.previous_best`) |
 
 Decisions taken along the way:
 
@@ -191,9 +191,14 @@ Decisions taken along the way:
   1 for an ordinary site, +10 rendered. Only 2xx responses are billed, so a challenge
   page returned as 200 is a billed 10. Confirmed against the account counter with
   single-call measurements. At three products the scheduled runs alone cost ≈60 credits
-  a run ≈ 180 a day, more than the account's 5,000-a-month limit. **Open, the owner's
-  call:** the scraping cadence (e.g. aggregators once a day), which offers are worth
-  10 credits three times a day, or a different plan.
+  a run ≈ 180 a day, more than the account's 5,000-a-month limit.
+- **Aggregators once a day** (the owner's decision, same day). `daily_only` on both
+  presets: whichever run is first in the UTC day scrapes them, the other two skip.
+  Six offers × 10 = 60 credits a day instead of 180 — ≈90 a day ≈ 2,700 a month with
+  retries and the Amazon rescue. Amazon and hinnavaatlus are on the free ladder and
+  still run 3×/day; a price drop on an LV shop is noticed up to 24 h later instead
+  of 8 h. It makes partial runs routine, which is why the drop alert's reference had
+  to become like for like (above).
 - **`usage` counts credits, not calls.** Each response states its own cost in the
   `sa-credit-cost` header; the counter behind the digest line and the 80% warning adds
   that. November's figure under-reports the calls made before the switch (all of them
@@ -203,7 +208,7 @@ Decisions taken along the way:
   holds on a runner.
 - **Retry a flagged exit.** The failed page is billed either way, so one more call costs
   nothing per successful page (≈13.7 credits per success with or without the retry); it
-  just stops paid-for failures from being thrown away. ≈30 a day at the measured
+  just stops paid-for failures from being thrown away. ≈10 a day at the measured
   1-in-4 rate.
 - **No generic accessory filter.** salidzini's search page is the ~40 cheapest matches, so
   a laptop query's minimum was a 22 € screen protector. A category blocklist can't be
@@ -212,8 +217,9 @@ Decisions taken along the way:
 - **The weekly check probes for real.** It used to run without `SCRAPERAPI_KEY` and skip
   the aggregators, so it replayed stale counters, re-tested Amazon on a path the
   scheduled runs don't use, and recorded a partial best as the product's last minimum
-  (another source of false drops). It now has the key and probes all offers (≈65
-  credits a week).
+  (another source of false drops). It now has the key and probes on the scheduled
+  runs' path; under the daily cadence it normally reports the 05:00 run's aggregator
+  results an hour later, and takes the day's scrape itself only if that run was delayed.
 - **Failures say why.** Each offer stores `last_error` (cleared on success) and the weekly
   report prints it. `fetch_playwright` errors name the page they were left on.
 - **Budget ceiling left alone.** The account API reported `requestLimit: 5000`;

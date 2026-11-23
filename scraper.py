@@ -435,12 +435,11 @@ def main() -> int:
                 best_price = best.price  # narrowed local: calls below invalidate member narrowing
                 events = []
                 specs = []
-                # a source that failed last run and returns at its old price is not a drop
-                own_prev = last_seen.get(best_offer["url"])
-                ev = alerts.product_min_event(product, best_offer, best, product.get("last_min"),
-                                              own_prev=own_prev)
-                sp = alerts.product_min_spec(product, best_offer, best, product.get("last_min"),
-                                             own_prev=own_prev)
+                # like for like: last_min is only the previous run's best, which a failed
+                # or not-yet-scraped source (daily cadence) leaves dearer than reality
+                prev_min = catalog.previous_best(results, last_seen) or product.get("last_min")
+                ev = alerts.product_min_event(product, best_offer, best, prev_min)
+                sp = alerts.product_min_spec(product, best_offer, best, prev_min)
                 if ev:
                     events.append(ev)
                 if sp:

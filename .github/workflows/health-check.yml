@@ -32,11 +32,14 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium --with-deps
 
-      # A real end-to-end probe of every offer, on the same path as the scheduled runs:
-      # the aggregators go through ScraperAPI and a blocked Amazon fetch gets its
-      # ScraperAPI rescue. Costs about 65 credits a week (six pages behind bot
-      # protection at 10 each, plus any Amazon rescue at 5). Without the key those
-      # offers would fail here and report a problem the scheduled runs don't have.
+      # A real end-to-end probe on the same path as the scheduled runs: Amazon gets
+      # its Playwright fetch and ScraperAPI rescue. The aggregators are scraped once
+      # a day, so normally the 05:00 run has just done them and this reports those
+      # results an hour later; if that run was delayed, this one takes the day's
+      # scrape and the tracker skips it. Either way it costs at most one day of
+      # aggregator fetches (≈60 credits at three products) plus any Amazon rescue (5).
+      # Without the key those offers would fail here and report a problem the
+      # scheduled runs don't have.
       - name: Run health check
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

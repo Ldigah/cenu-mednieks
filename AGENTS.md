@@ -3,8 +3,9 @@
 ## Project
 
 Price & discount tracker: GitHub Actions runs `scraper.py` 3×/day (07/15/23 Latvia =
-`0 5,13,21 * * *` UTC, plus `repository_dispatch` from the Worker), scrapes every offer
-of every **product** in the state gist, diffs against last-seen prices, and alerts on
+`0 5,13,21 * * *` UTC, plus `repository_dispatch` from the Worker), scrapes the offers
+of every **product** in the state gist — free stores every run, the ScraperAPI-backed
+aggregators once a day on the first run — diffs against last-seen prices, and alerts on
 Telegram. A Cloudflare Worker gives instant read-only commands; a static snapshot
 publishes to GitHub Pages. Decisions: [DECISIONS.md](DECISIONS.md) ·
 Setup: [SETUP.md](SETUP.md).
@@ -50,10 +51,10 @@ snapshot. Nothing is committed to the repo.
 - `ruff check . && mypy .` — lint + types
 - `python scraper.py --local --only <name-part>` — local dry run (state-local/, no Telegram)
 - `python scraper.py --health` — failures-only report, one line per failing offer with its
-  `last_error` (same as the weekly workflow, which probes every offer incl. the ScraperAPI
-  ones — about 65 credits). Against the live gist it would also post the report to
-  Telegram — run it as `TELEGRAM_BOT_TOKEN= python scraper.py --health` to keep that
-  quiet.
+  `last_error` (same as the weekly workflow; under the daily cadence it reports the 05:00
+  run's aggregator results unless that run was delayed). Against the live gist it would
+  also post the report to Telegram — run it as
+  `TELEGRAM_BOT_TOKEN= python scraper.py --health` to keep that quiet.
 - `python publish.py --out site --local` — render the web snapshot locally
 - Logs in CI: Actions → "Price tracker" → "Run tracker" step
   (`OK <product> · <store>: <price>` / `FAIL <product> · <store>: <reason>`)
@@ -87,13 +88,16 @@ snapshot. Nothing is committed to the repo.
   (official rate table, confirmed against the account counter 2026-11-23). Only 2xx
   responses are billed, so a challenge page returned as HTTP 200 is a billed 10.
   `fetch_scraperapi` reads each response's `sa-credit-cost` header and `usage` counts
-  real credits. Six aggregator offers × 3 runs/day ≈ 180 credits/day ≈ 5,400/month —
-  more than the account's 5,000, so the cadence, not the per-call price, is the lever.
-- salidzini.lv: `api_country="lv"` plain fetches every run (geotargeting is free). An
+  real credits. At 3 runs/day six aggregator offers cost ≈180 credits/day ≈ 5,400/month,
+  more than the account's 5,000 — hence `daily_only` on both aggregators (decided
+  2026-11-23): six offers × 10 = 60 credits once a day. Amazon and hinnavaatlus are on
+  the free ladder and still run 3×/day.
+- salidzini.lv: `api_country="lv"` plain fetch on the day's first run (`daily_only`;
+  geotargeting is free). An
   LV exit gets past the Turnstile on ~3 of 4 calls (measured 2026-11-23); the rest
   return the challenge page as HTTP 200, which `fetch_scraperapi` retries on a fresh
   exit — the failed page is billed either way, so the retry costs nothing per
-  successful page. Without the geo pin even renders fail. ceno.lv: plain every run.
+  successful page. Without the geo pin even renders fail. ceno.lv: the same, no pin.
   kurpirkt.lv is UNREACHABLE via ScraperAPI (500 on plain/render/premium, 403
   ultra_premium — verified 2026-11-19): no kurpirkt offers in CI; its preset remains
   for local runs from home IPs.
@@ -105,15 +109,18 @@ snapshot. Nothing is committed to the repo.
   laptop) add a token only the real item has (`… Gen 4 16GB`), or the min is a 22 € screen
   protector. There is deliberately no generic accessory filter: an accessory can be the
   product itself (the LP923 is a phone holder).
-- A product's "new best" alert compares against last run's best, which is only complete
-  if every offer was scraped. When the cheapest source fails a run and returns unchanged,
-  that gap read as a drop (JBL: 73 € after a run recorded at 77 € is −5.2%).
-  `product_min_event`/`product_min_spec` take the winner's own last price (`own_prev`)
-  and stay silent when it hasn't dropped — pass it whenever offers can fail.
-- ScraperAPI budget: ≈180 credits/day for the scheduled runs alone at 3 products, plus
-  ~30/day for salidzini retries and ~15/day for Amazon rescues. The account API reported
-  `requestLimit: 5000` on 2026-11-23, not the 1,000 `SCRAPERAPI_MONTHLY_CREDITS` assumes,
-  so the 80% warning fires early rather than late.
+- Runs are routinely partial — the daily cadence skips the aggregators, and offers fail —
+  so `product.last_min` (the previous run's best) is no sound reference for the "new
+  best" alert: the cheapest source returning unchanged after a run that only saw dearer
+  stores read as a drop (JBL: 73 € after a run recorded at 77 € = −5.2%), and a small real
+  drop cleared the threshold against that dearer stand-in. The alert compares like with
+  like: `catalog.previous_best(results, last_seen)`, the lowest last-seen price among the
+  offers scraped in this run. `last_min` is only the fallback when nothing has a history.
+- ScraperAPI budget: ≈60 credits for the day's aggregator scrape at 3 products, plus
+  ~10/day for salidzini retries and ~15/day for Amazon rescues — ≈90/day ≈ 2,700/month
+  against the account's 5,000. The account API reported `requestLimit: 5000` on
+  2026-11-23, not the 1,000 `SCRAPERAPI_MONTHLY_CREDITS` assumes, so the 80% warning
+  fires early rather than late.
 - `publish.py` (not `site.py`) — `site` is Python's stdlib and shadows any local
   module of that name.
 - The Worker's read-only answers are approximations of the Python bot's replies; charts

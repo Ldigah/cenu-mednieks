@@ -78,3 +78,12 @@ def test_ceno_microdata_min():
     assert ex.in_stock is True
     assert ex.offers == 14                      # global offerCount meta
     assert ex.source == "microdata"
+
+
+def test_aggregators_are_daily_and_the_free_stores_run_every_time():
+    # a page behind bot protection costs 10 ScraperAPI credits: once a day is enough
+    for url in ("https://www.salidzini.lv/search?q=UGREEN+LP923", "https://ceno.lv/search?q=JBL"):
+        assert stores.adapter_for(url).daily_only is True
+    for url in ("https://www.amazon.pl/dp/B0TEST", "https://hinnavaatlus.ee/5681989/x/",
+                "https://example-shop.lv/p/1"):            # fetched by the free ladder
+        assert stores.adapter_for(url).daily_only is False

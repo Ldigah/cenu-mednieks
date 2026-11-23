@@ -52,7 +52,8 @@ jobs:
         # Cloudflare-guarded LV aggregators (salidzini/ceno) go through ScraperAPI
         # when SCRAPERAPI_KEY is set; without the key they fall back to the
         # requests→Playwright ladder. ScraperAPI charges 10 credits per such page
-        # (bot-protection bypass) — about 60 per run at three products.
+        # (bot-protection bypass), so they are scraped once a day — by whichever
+        # run is first in the UTC day — about 60 credits at three products.
         run: python scraper.py
 
       - name: Publish web snapshot

@@ -227,6 +227,26 @@ def best_result(results: Sequence[tuple[dict, parse.Extraction | None]]) \
     return best_offer, best
 
 
+def previous_best(results: Sequence[tuple[dict, parse.Extraction | None]],
+                  last_seen: dict[str, float]) -> dict | None:
+    """Lowest last-seen price among the offers scraped in this run →
+    {"price", "url", "store"}; None when none of them has a history.
+
+    The like-for-like reference for the product drop alert. `product.last_min` is
+    only the previous run's best, and a run without its cheapest offer (it failed,
+    or the daily cadence skipped it) records a dearer one — after which the source's
+    unchanged return reads as a drop (JBL: 73 € after a run recorded at 77 € = −5.2%).
+    Over every offer this is simply the previous minimum, as before.
+    """
+    prev: dict | None = None
+    for offer, _ex in results:
+        price = last_seen.get(offer["url"])
+        if price is not None and (prev is None or price < prev["price"]):
+            prev = {"price": price, "url": offer["url"],
+                    "store": offer.get("label") or offer.get("store") or ""}
+    return prev
+
+
 def best_state(product: dict, prices: dict) -> tuple[dict | None, dict | None]:
     """Offer with the lowest known price + its price state (for /prices, digest, charts)."""
     best_o: dict | None = None

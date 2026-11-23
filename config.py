@@ -37,7 +37,7 @@ DROP_ALERT_MIN_PCT = 1.0      # legacy offer-level floor (discount/restock event
 DEFAULT_DROP_PCT = 5.0        # product-level min-price drop threshold (per-product override via /threshold)
 FAIL_ALERT_AFTER = 3          # Q21: alert after 3 consecutive failures
 DIGEST_RUN_HOUR_UTC = 21      # Q11: daily digest rides the 21:00 UTC run (= 23:00 Latvia, winter)
-HISTORY_MAX_POINTS = 500      # per-entry price history cap (~5 months at 3 runs/day)
+HISTORY_MAX_POINTS = 500      # per-entry price history cap (~5 months at 3 runs/day; longer for daily offers)
 
 REQUEST_TIMEOUT = 20
 FETCH_RETRIES = 1              # one retry max — long anti-bot backoffs waste the run budget
@@ -54,8 +54,9 @@ F_USERS = "users.json"        # Q36: users/roles/watchlists live in the same sec
 
 # ScraperAPI budget (Q38): track credits per run in bot_state.usage, warn at 80%.
 # 1000 is the budget the project was planned around; the account's real limit may
-# differ (its API reported requestLimit 5000 on 2026-11-23). At 10 credits per
-# aggregator page, the three scheduled runs a day spend about 180.
+# differ (its API reported requestLimit 5000 on 2026-11-23). Aggregator pages are
+# fetched once a day (daily_only) at 10 credits each — about 60 for the first run
+# of the day at three products.
 SCRAPERAPI_MONTHLY_CREDITS = 1000
 USAGE_WARN_FRACTION = 0.8
 

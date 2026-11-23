@@ -1,4 +1,5 @@
 import alerts
+import catalog
 from alerts import diff_events
 from parse import Extraction
 
@@ -72,18 +73,25 @@ def test_product_min_threshold_override():
 
 def test_source_returning_at_its_old_price_is_not_a_drop():
     # 2026-11-22/23 in CI: salidzini (73 €) failed one run, so last_min became ceno's
-    # 77 €; salidzini's return at an unchanged 73 € read as a −5.2% "new best"
+    # 77 €; salidzini's return at an unchanged 73 € read as a −5.2% "new best".
+    # The reference has to be like for like: the previous best over the offers
+    # scraped in this run, not whatever the previous run could see.
+    salidzini = dict(OFFER, url="https://www.salidzini.lv/search?q=jbl")
+    ceno = dict(OFFER, url="https://ceno.lv/search?q=jbl", store="ceno.lv", label="ceno.lv")
+    results = [(salidzini, Extraction(price=73.0)), (ceno, Extraction(price=77.0))]
+    seen = {salidzini["url"]: 73.0, ceno["url"]: 77.0}
     stood_in = {"price": 77.0, "store": "ceno.lv"}
-    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=73.0), stood_in)   # old behaviour
-    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=73.0), stood_in,
-                                    own_prev=73.0) is None
-    assert alerts.product_min_spec(PRODUCT, OFFER, Extraction(price=73.0), stood_in,
-                                   own_prev=73.0) is None
-    # a real drop at that source still alerts, as does a first sighting (no own price yet)
-    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=70.0), stood_in,
-                                    own_prev=73.0)
-    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=73.0), stood_in,
-                                    own_prev=None)
+    assert alerts.product_min_event(PRODUCT, salidzini, Extraction(price=73.0), stood_in)
+
+    prev = catalog.previous_best(results, seen)
+    assert prev == {"price": 73.0, "url": salidzini["url"], "store": "salidzini.lv"}
+    assert alerts.product_min_event(PRODUCT, salidzini, Extraction(price=73.0), prev) is None
+    assert alerts.product_min_spec(PRODUCT, salidzini, Extraction(price=73.0), prev) is None
+    # a real drop is measured against the source's own last price: 2% stays silent,
+    # 5.5% alerts and names that price, not the dearer store that stood in
+    assert alerts.product_min_event(PRODUCT, salidzini, Extraction(price=71.5), prev) is None
+    ev = alerts.product_min_event(PRODUCT, salidzini, Extraction(price=69.0), prev)
+    assert ev and "was 73.00 € at salidzini.lv (−5.5%)" in ev
 
 
 def test_atl_first_sighting_silent_then_alert():

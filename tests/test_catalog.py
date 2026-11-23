@@ -89,6 +89,22 @@ def test_offer_entry_shape():
     assert e["url"] == "https://x/1"
 
 
+def test_previous_best_is_like_for_like():
+    sal = {"url": "https://www.salidzini.lv/search?q=jbl", "store": "salidzini.lv", "label": "salidzini.lv"}
+    ceno = {"url": "https://ceno.lv/search?q=jbl", "store": "ceno.lv", "label": "ceno.lv"}
+    amz = {"url": "https://www.amazon.pl/dp/B0X", "store": "amazon.pl", "label": "Amazon.pl"}
+    scraped = [(sal, None), (ceno, None), (amz, None)]
+    # every offer scraped → the plain previous minimum, what last_min used to stand in for
+    seen = {sal["url"]: 73.0, ceno["url"]: 77.0, amz["url"]: 78.52}
+    assert catalog.previous_best(scraped, seen) == {"price": 73.0, "url": sal["url"],
+                                                    "store": "salidzini.lv"}
+    # the cheapest failed, or the daily cadence skipped it: no last-seen price, so it
+    # must not weigh on the reference (a failed offer still sits in `results`)
+    assert catalog.previous_best(scraped, {ceno["url"]: 77.0, amz["url"]: 78.52}) == {
+        "price": 77.0, "url": ceno["url"], "store": "ceno.lv"}
+    assert catalog.previous_best([(amz, None)], {}) is None      # nothing has a history yet
+
+
 def test_product_stats_windows():
     from datetime import UTC, datetime, timedelta
     o1 = {"url": "1", "store": "a", "label": "a"}

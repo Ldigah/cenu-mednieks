@@ -66,12 +66,15 @@ costs depends on the site — see step 2):
    request: a page behind bot protection (both LV aggregators — Cloudflare) costs
    **10 credits**, an Amazon page 5, an ordinary page 1, and rendering adds 10
    ([rate table](https://docs.scraperapi.com/getting-started/quick-start/credits-and-requests-costs),
-   confirmed against the account counter 2026-11-23). With three products that is
-   ≈60 credits per run, **≈180 a day** for the scheduled runs, plus salidzini retries
-   (~30/day) and the Amazon rescue (~15/day) — about 6,800 a month, which is more than
-   the 5,000 the account reported as its limit. The bot's digest line counts real
-   credits (from each response's `sa-credit-cost` header); `SCRAPERAPI_MONTHLY_CREDITS`
-   in `config.py` is the ceiling the 80% warning uses — set it to your plan's limit.
+   confirmed against the account counter 2026-11-23). So the aggregators are scraped
+   **once a day**, by the first run of the UTC day: with three products that is ≈60
+   credits, plus salidzini retries (~10/day) and the Amazon rescue (~15/day) —
+   **≈90 a day, ≈2,700 a month** against the 5,000 the account reported as its limit.
+   At 3×/day it was ≈180 a day and would have run the quota out before the monthly
+   reset. Amazon and the other free stores still run 3×/day. The bot's digest line
+   counts real credits (from each response's `sa-credit-cost` header);
+   `SCRAPERAPI_MONTHLY_CREDITS` in `config.py` is the ceiling the 80% warning uses —
+   set it to your plan's limit.
    kurpirkt.lv is unreachable via ScraperAPI (HTTP 500 on every proxy tier — verified)
    and is not tracked in CI; its preset stays for local runs from home.
 3. Without the key the bot still works — those three stores simply fall back to the

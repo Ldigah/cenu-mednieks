@@ -97,7 +97,7 @@ SALIDZINI = SalidziniAdapter(
     dc_blocked=True,                  # foreign datacenter IPs hit a Turnstile wall…
     api_country="lv",                 # …but an LV exit passes with PLAIN requests on ~3 of 4 calls
     render_api=False,
-    daily_only=False,
+    daily_only=True,                  # 10 credits a page: the first run of the day scrapes it
     selectors={  # CSS fallback only — JSON-LD AggregateOffer above is primary
         "price": "article a.product > data",
         "old_price": None,
