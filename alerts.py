@@ -152,9 +152,15 @@ def target_spec(product: dict, price: float, target: float, store: str) -> tuple
 
 
 def product_min_event(product: dict, offer: dict, new: Extraction,
-                      prev_min: dict | None) -> str | None:
-    """Drop alert on the product's best price across stores (per-product threshold)."""
-    f = _product_min_fields(product, offer, new, prev_min)
+                      prev_min: dict | None, own_prev: float | None = None) -> str | None:
+    """Drop alert on the product's best price across stores (per-product threshold).
+
+    `own_prev` is the winning offer's own last seen price. `prev_min` is only the
+    previous run's best, so when the cheapest source failed that run and now returns
+    unchanged, the gap to the dearer store that stood in reads as a drop (JBL: 73 €
+    after a run recorded at 77 € is −5.2%, over the default threshold).
+    """
+    f = _product_min_fields(product, offer, new, prev_min, own_prev)
     if f is None:
         return None
     prev_at = f" at {f['prev_store']}" if f["prev_store"] else ""
@@ -163,12 +169,14 @@ def product_min_event(product: dict, offer: dict, new: Extraction,
 
 
 def _product_min_fields(product: dict, offer: dict, new: Extraction,
-                        prev_min: dict | None) -> dict | None:
+                        prev_min: dict | None, own_prev: float | None = None) -> dict | None:
     """Shared trigger + fields for the product drop alert (None = no alert)."""
     if prev_min is None or prev_min.get("price") is None:
         return None
     if new.price is None or offer is None:
         return None
+    if own_prev is not None and new.price >= own_prev:
+        return None              # merely back at its own last price — nothing dropped
     prev_p = prev_min["price"]
     if new.price >= prev_p:
         return None
@@ -185,9 +193,9 @@ def _product_min_fields(product: dict, offer: dict, new: Extraction,
 
 
 def product_min_spec(product: dict, offer: dict, new: Extraction,
-                     prev_min: dict | None) -> tuple[str, dict] | None:
+                     prev_min: dict | None, own_prev: float | None = None) -> tuple[str, dict] | None:
     """i18n spec for the drop alert — same trigger, T()-rendered per user language."""
-    f = _product_min_fields(product, offer, new, prev_min)
+    f = _product_min_fields(product, offer, new, prev_min, own_prev)
     return ("drop_alert", f) if f else None
 
 
@@ -390,7 +398,7 @@ def budget_warning(usage: dict) -> str | None:
 
 
 def health_summary(products: dict, prices: dict) -> str:
-    """Failures-only report across all offers of all products."""
+    """Failures-only report across all offers of all products, each with its last error."""
     total = 0
     failing = []
     for prod in products.get("products", []):
@@ -398,8 +406,9 @@ def health_summary(products: dict, prices: dict) -> str:
             total += 1
             st = prices.get(o["url"], {})
             if st.get("fails"):
+                reason = f" — {esc(str(st['last_error'])[:90])}" if st.get("last_error") else ""
                 failing.append(f"⚠️ {esc(prod['name'])} · {esc(o.get('label') or o['store'])} "
-                               f"×{st['fails']}")
+                               f"×{st['fails']}{reason}")
     if not failing:
         return f"🩺 <b>Weekly health check:</b> all {total} offers OK ✅"
     return (f"🩺 <b>Weekly health check:</b> {len(failing)}/{total} offers failing\n"

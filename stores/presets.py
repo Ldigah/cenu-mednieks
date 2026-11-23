@@ -29,6 +29,12 @@ AMAZON_PL = StoreAdapter(
     label="Amazon.pl",
     strategy="playwright",
     require_decimal_price=True,
+    # GitHub runners hit Amazon's bot wall on roughly half the fetches (35-run
+    # history to 2026-11-23); a plain ScraperAPI fetch returned the real page
+    # every time it was measured — so a blocked Playwright attempt is rescued.
+    # ScraperAPI prices Amazon at 5 credits per request (sa-credit-cost), and the
+    # rescue only ever runs when the free Playwright path has already failed.
+    api_fallback=True,
     selectors={
         "price": ("#corePriceDisplay_desktop_feature_div .a-price .a-offscreen, "
                   "#corePriceDisplay_mobile_feature_div .a-price .a-offscreen, "

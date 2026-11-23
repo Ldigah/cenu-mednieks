@@ -58,15 +58,22 @@ your Telegram gets *"✅ Cenu Mednieks initialized"*.
 ## Step 5 — ScraperAPI key (free, unlocks the LV aggregators in CI)
 
 salidzini.lv / kurpirkt.lv / ceno.lv Cloudflare-challenge datacenter IPs, so CI fetches
-them through [ScraperAPI](https://www.scraperapi.com)'s free plan (1,000 credits/month,
-no credit card — plain fetch = 1 credit, JS-rendered = 10):
+them through [ScraperAPI](https://www.scraperapi.com) (no credit card; what a request
+costs depends on the site — see step 2):
 
 1. Sign up → copy the API key → add it as the `SCRAPERAPI_KEY` secret.
-2. That's it. The budget (verified 2026-11-19): salidzini + ceno plain 3×/day with LV
-   geo-pinning (`country_code=lv` avoids the Turnstile — 1 credit each) →
-   **≈180 of 1,000 credits/month**. kurpirkt.lv is unreachable via ScraperAPI (HTTP 500
-   on every proxy tier — verified) and is not tracked in CI; its preset stays for local
-   runs from home.
+2. That's it — but know what it spends. ScraperAPI does not charge a flat credit per
+   request: a page behind bot protection (both LV aggregators — Cloudflare) costs
+   **10 credits**, an Amazon page 5, an ordinary page 1, and rendering adds 10
+   ([rate table](https://docs.scraperapi.com/getting-started/quick-start/credits-and-requests-costs),
+   confirmed against the account counter 2026-11-23). With three products that is
+   ≈60 credits per run, **≈180 a day** for the scheduled runs, plus salidzini retries
+   (~30/day) and the Amazon rescue (~15/day) — about 6,800 a month, which is more than
+   the 5,000 the account reported as its limit. The bot's digest line counts real
+   credits (from each response's `sa-credit-cost` header); `SCRAPERAPI_MONTHLY_CREDITS`
+   in `config.py` is the ceiling the 80% warning uses — set it to your plan's limit.
+   kurpirkt.lv is unreachable via ScraperAPI (HTTP 500 on every proxy tier — verified)
+   and is not tracked in CI; its preset stays for local runs from home.
 3. Without the key the bot still works — those three stores simply fall back to the
    direct requests→Playwright ladder (fine from residential IPs, e.g. local dry runs).
 

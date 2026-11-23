@@ -32,10 +32,16 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium --with-deps
 
+      # A real end-to-end probe of every offer, on the same path as the scheduled runs:
+      # the aggregators go through ScraperAPI and a blocked Amazon fetch gets its
+      # ScraperAPI rescue. Costs about 65 credits a week (six pages behind bot
+      # protection at 10 each, plus any Amazon rescue at 5). Without the key those
+      # offers would fail here and report a problem the scheduled runs don't have.
       - name: Run health check
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
-        run: python scraper.py --health --skip-stores "salidzini.lv,pigu.lt,kurpirkt.lv,ceno.lv"
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+        run: python scraper.py --health

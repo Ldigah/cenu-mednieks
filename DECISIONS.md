@@ -173,3 +173,53 @@ alerts.py, Worker callbacks). Superseded rows marked. Everything else stands.
 4. Push → CI runs pytest/ruff/mypy; the run migrates the owner into users.json
    automatically (from TELEGRAM_CHAT_ID / the adopted bot_state.chat_id).
 
+## Health-check fixes (2026-11-23)
+
+The weekly report listed 5 of 9 offers failing. They were four unrelated problems:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| amazon.pl failing ~half the runs | always a bare `wait_for_selector` timeout (30 of 30 Amazon failures). Reproduced cause: after clicking through Amazon's bot wall, Playwright is left on the storefront root | click through, then re-navigate to the deep link; `api_fallback` on the preset rescues a still-blocked attempt with one plain ScraperAPI fetch (5 credits) |
+| salidzini.lv failing on ~1 call in 4 | an LV exit still returns the Turnstile page as HTTP 200 | `fetch_scraperapi` retries on a fresh exit (up to 2×) |
+| `lenovo thinkpad t16 gen4` never had a price | bad query: `gen4` matched nothing on ceno.lv, and the `lenovo thinkpad t16 …` form resolves to salidzini's hCaptcha-walled group page | live catalog only — offers repointed at `ThinkPad T16 Gen 4` (salidzini: `… 16GB` to keep accessories out) |
+| false "new best" alerts (found on the way, not reported) | the drop alert compares against last run's best. When the cheapest source fails a run, the dearer store that stands in becomes the reference, and the source's unchanged return reads as a drop (JBL: 73 € after a run recorded at 77 € = −5.2%) | the alert also gets the winner's own last price (`own_prev`) and stays silent when that hasn't dropped |
+
+Decisions taken along the way:
+
+- **ScraperAPI is not 1 credit per request — R17 was off by 10×.** The official rate
+  table: 10 credits per page behind bot protection (both LV aggregators), 5 for Amazon,
+  1 for an ordinary site, +10 rendered. Only 2xx responses are billed, so a challenge
+  page returned as 200 is a billed 10. Confirmed against the account counter with
+  single-call measurements. At three products the scheduled runs alone cost ≈60 credits
+  a run ≈ 180 a day, more than the account's 5,000-a-month limit. **Open, the owner's
+  call:** the scraping cadence (e.g. aggregators once a day), which offers are worth
+  10 credits three times a day, or a different plan.
+- **`usage` counts credits, not calls.** Each response states its own cost in the
+  `sa-credit-cost` header; the counter behind the digest line and the 80% warning adds
+  that. November's figure under-reports the calls made before the switch (all of them
+  10-credit pages); it is exact from the December reset.
+- **Rescue, don't replace.** Amazon.pl stays Playwright-first (free) and pays 5 credits
+  only when that fails — ≈15 a day at the observed failure rate, less if the wall fix
+  holds on a runner.
+- **Retry a flagged exit.** The failed page is billed either way, so one more call costs
+  nothing per successful page (≈13.7 credits per success with or without the retry); it
+  just stops paid-for failures from being thrown away. ≈30 a day at the measured
+  1-in-4 rate.
+- **No generic accessory filter.** salidzini's search page is the ~40 cheapest matches, so
+  a laptop query's minimum was a 22 € screen protector. A category blocklist can't be
+  right in general — the LP923 *is* an accessory — and six polluting rows had a blank
+  category anyway. The query carries the discrimination for now.
+- **The weekly check probes for real.** It used to run without `SCRAPERAPI_KEY` and skip
+  the aggregators, so it replayed stale counters, re-tested Amazon on a path the
+  scheduled runs don't use, and recorded a partial best as the product's last minimum
+  (another source of false drops). It now has the key and probes all offers (≈65
+  credits a week).
+- **Failures say why.** Each offer stores `last_error` (cleared on success) and the weekly
+  report prints it. `fetch_playwright` errors name the page they were left on.
+- **Budget ceiling left alone.** The account API reported `requestLimit: 5000`;
+  `SCRAPERAPI_MONTHLY_CREDITS` still says 1,000, so the warning errs early. Which one is
+  the real ceiling is the owner's decision.
+- **Not verified on a GitHub runner at the time of writing:** Amazon's wall path (it does
+  not appear from a home IP). It is reproduced by a local stand-in that yields the
+  identical error signature when the fix is removed.
+

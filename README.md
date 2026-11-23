@@ -64,6 +64,8 @@ python publish.py --out site --local       # render the web snapshot locally
 ```
 
 CI runs pytest + ruff + mypy on every push (see [.github/workflows/tests.yml](.github/workflows/tests.yml)).
-The Cloudflare-guarded LV aggregators use ScraperAPI in CI (`SCRAPERAPI_KEY` secret,
-≈690 of the free 1,000 credits/month); without the key they fall back to the direct
-requests→Playwright ladder, which works from residential IPs.
+The Cloudflare-guarded LV aggregators use ScraperAPI in CI, as does the single rescue fetch
+for an Amazon.pl attempt that Playwright couldn't get through (`SCRAPERAPI_KEY` secret).
+ScraperAPI bills those at 10 and 5 credits respectively — ≈60 per run, ≈180 a day with
+three products; without the key those stores fall back to the direct requests→Playwright
+ladder, which works from residential IPs.

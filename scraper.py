@@ -72,7 +72,7 @@ def _extract_or_diag(ident: str, html_text: str, adapter):
 
 
 def _fetch_html(url: str, adapter: stores.StoreAdapter) -> str:
-    """The same fetch ladder as scrape_offer, but returns raw HTML (guided-add preview)."""
+    """Fetch raw HTML for an offer — the ladder scrape_offer and the guided-add preview share."""
     if SCRAPERAPI_KEY and adapter.dc_blocked:
         return fetch.fetch_scraperapi(url, SCRAPERAPI_KEY,
                                       render=adapter.render_api,
@@ -83,37 +83,43 @@ def _fetch_html(url: str, adapter: stores.StoreAdapter) -> str:
         return fetch.fetch_requests(url)
     except fetch.FetchError:
         if adapter.strategy == "requests+playwright":
+            log.info("%s: requests failed, trying playwright", urlparse(url).hostname or url)
             return fetch.fetch_playwright(url, adapter.wait_selector)
         raise
+
+
+def _fetch_api(url: str, adapter: stores.StoreAdapter, usage: dict | None,
+               why: str = "") -> str:
+    """ScraperAPI fetch at ScraperAPI's rates (10 credits behind bot protection, 5 on
+    Amazon, +10 rendered); every billed response lands in `usage` at its real cost."""
+    if why:
+        log.warning("%s: %s — retrying via ScraperAPI", urlparse(url).hostname or url, why)
+    counted = usage
+    on_credit = ((lambda cost: alerts.bump_usage(counted, credits=cost))
+                 if counted is not None else None)
+    return fetch.fetch_scraperapi(url, SCRAPERAPI_KEY, render=adapter.render_api,
+                                  country=adapter.api_country, on_credit=on_credit)
 
 
 def scrape_offer(url: str, adapter: stores.StoreAdapter, usage: dict | None = None):
     """Fetch + extract one offer → (error: str | None, extraction | None).
 
     Cloudflare-guarded aggregators go through ScraperAPI in CI (dc_blocked presets);
-    everything else uses the requests → Playwright ladder. Each ScraperAPI call
-    costs one credit — counted into bot_state.usage when provided (Q38).
+    everything else uses the requests → Playwright ladder, rescued by one plain
+    ScraperAPI call when that ladder is blocked (api_fallback presets). Every
+    billed ScraperAPI response is counted into bot_state.usage, in credits (Q38).
     """
     ident = urlparse(url).hostname or url
     try:
         if SCRAPERAPI_KEY and adapter.dc_blocked:
-            if usage is not None:
-                alerts.bump_usage(usage)
-            html_text = fetch.fetch_scraperapi(url, SCRAPERAPI_KEY,
-                                               render=adapter.render_api,
-                                               country=adapter.api_country)
-            return _extract_or_diag(ident, html_text, adapter)
-        if adapter.uses_playwright():
-            return _extract_or_diag(
-                ident, fetch.fetch_playwright(url, adapter.wait_selector), adapter)
+            return _extract_or_diag(ident, _fetch_api(url, adapter, usage), adapter)
         try:
-            html_text = fetch.fetch_requests(url)
-        except fetch.FetchError:
-            if adapter.strategy == "requests+playwright":
-                log.info("%s: requests failed, trying playwright", ident)
-                html_text = fetch.fetch_playwright(url, adapter.wait_selector)
-            else:
+            html_text = _fetch_html(url, adapter)
+        except fetch.FetchError as e:
+            if not (SCRAPERAPI_KEY and adapter.api_fallback):
                 raise
+            return _extract_or_diag(
+                ident, _fetch_api(url, adapter, usage, why=str(e)), adapter)
         err, ex = _extract_or_diag(ident, html_text, adapter)
         if (err is not None) and adapter.strategy == "requests+playwright":
             log.info("%s: no price via requests, trying playwright", ident)
@@ -147,22 +153,24 @@ def stage_add(chat_id, query: str, user: dict, bot_state: dict,
               search_mode: bool = False) -> None:
     """Guided /add (Q30) and /search (Q27): preview aggregator matches as buttons.
 
-    Scrapes the discovery search pages right now (2 credits max), groups the
-    rows into distinct product candidates, and stores everything in
-    bot_state.pending_adds — nothing is tracked until a button is tapped.
-    search_mode only changes the wording (price-check first, track after).
+    Scrapes the discovery search pages right now (two pages behind bot protection
+    — 20 credits at ScraperAPI's rate), groups the rows into distinct product
+    candidates, and stores everything in bot_state.pending_adds — nothing is
+    tracked until a button is tapped. search_mode only changes the wording
+    (price-check first, track after).
     """
     found: dict[str, dict] = {}
     usage = bot_state.setdefault("usage", {})
     for offer in catalog.discovery_offers(query):
         adapter = stores.adapter_for(offer["url"])
         try:
-            html_text = _fetch_html(offer["url"], adapter)
+            if SCRAPERAPI_KEY and adapter.dc_blocked:
+                html_text = _fetch_api(offer["url"], adapter, usage)
+            else:
+                html_text = _fetch_html(offer["url"], adapter)
         except fetch.FetchError as e:
             log.warning("add-preview %s failed: %s", offer["store"], e)
             continue
-        if SCRAPERAPI_KEY and adapter.dc_blocked:
-            alerts.bump_usage(usage)
         for c in adapter.candidates(html_text, limit=ADD_CANDIDATES_MAX):
             name = (c.get("name") or "").strip()
             if not name:
@@ -358,6 +366,7 @@ def main() -> int:
             if args.only and args.only.lower() not in f"{product['id']} {product['name']}".lower():
                 continue
             results: list[tuple[dict, parse.Extraction | None]] = []
+            last_seen: dict[str, float] = {}   # each scraped offer's price before this run
             for offer in product["offers"]:
                 url = offer["url"]
                 host = (urlparse(url).hostname or "").lower().removeprefix("www.")
@@ -377,6 +386,7 @@ def main() -> int:
                 err, ex = scrape_offer(url, adapter, bot_state.setdefault("usage", {}))
                 if err is not None or ex is None or ex.price is None:
                     st["fails"] = int(st.get("fails") or 0) + 1
+                    st["last_error"] = (err or "price not found on page")[:300]
                     failed += 1
                     log.warning("FAIL %s · %s (×%d): %s",
                                 product["id"], offer["store"], st["fails"], err)
@@ -391,8 +401,11 @@ def main() -> int:
                     results.append((offer, None))
                 else:
                     st["fails"] = 0
+                    st.pop("last_error", None)
                     prev = {"price": st.get("price"), "old_price": st.get("old_price"),
                             "in_stock": st.get("in_stock")} if st.get("price") is not None else None
+                    if prev is not None:
+                        last_seen[url] = prev["price"]
                     if not args.health and send:
                         events = alerts.offer_events(entry, ex, prev)
                         if events:
@@ -422,8 +435,12 @@ def main() -> int:
                 best_price = best.price  # narrowed local: calls below invalidate member narrowing
                 events = []
                 specs = []
-                ev = alerts.product_min_event(product, best_offer, best, product.get("last_min"))
-                sp = alerts.product_min_spec(product, best_offer, best, product.get("last_min"))
+                # a source that failed last run and returns at its old price is not a drop
+                own_prev = last_seen.get(best_offer["url"])
+                ev = alerts.product_min_event(product, best_offer, best, product.get("last_min"),
+                                              own_prev=own_prev)
+                sp = alerts.product_min_spec(product, best_offer, best, product.get("last_min"),
+                                             own_prev=own_prev)
                 if ev:
                     events.append(ev)
                 if sp:

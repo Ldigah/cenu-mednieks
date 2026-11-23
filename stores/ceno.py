@@ -84,7 +84,7 @@ CENO = CenoAdapter(
     domain="ceno.lv",
     label="ceno.lv (LV shops)",
     strategy="requests+playwright",
-    dc_blocked=True,         # datacenter IPs challenged even via Playwright → ScraperAPI (1 credit)
+    dc_blocked=True,         # datacenter IPs challenged even via Playwright → ScraperAPI (10 credits)
     selectors={"price": '#results li[itemprop="offers"] a[title^="Produkta cena"] span'},
     wait_selector='li[itemprop="offers"]',
     notes="Use /search?q= URLs (product slugs mostly soft-404). Browser UA mandatory "

@@ -70,6 +70,22 @@ def test_product_min_threshold_override():
     assert alerts.product_min_event(prod, OFFER, Extraction(price=89.0), {"price": 100.0})
 
 
+def test_source_returning_at_its_old_price_is_not_a_drop():
+    # 2026-11-22/23 in CI: salidzini (73 €) failed one run, so last_min became ceno's
+    # 77 €; salidzini's return at an unchanged 73 € read as a −5.2% "new best"
+    stood_in = {"price": 77.0, "store": "ceno.lv"}
+    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=73.0), stood_in)   # old behaviour
+    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=73.0), stood_in,
+                                    own_prev=73.0) is None
+    assert alerts.product_min_spec(PRODUCT, OFFER, Extraction(price=73.0), stood_in,
+                                   own_prev=73.0) is None
+    # a real drop at that source still alerts, as does a first sighting (no own price yet)
+    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=70.0), stood_in,
+                                    own_prev=73.0)
+    assert alerts.product_min_event(PRODUCT, OFFER, Extraction(price=73.0), stood_in,
+                                    own_prev=None)
+
+
 def test_atl_first_sighting_silent_then_alert():
     prod = dict(PRODUCT)
     assert alerts.atl_update(prod, OFFER, Extraction(price=73.0)) is None
@@ -103,3 +119,14 @@ def test_health_summary_counts_offers():
     assert "all 1 offers OK" in ok
     bad = alerts.health_summary(products, {"https://s.lv/x": {"fails": 3}})
     assert "1/1 offers failing" in bad and "×3" in bad
+
+
+def test_health_summary_shows_why_each_offer_fails():
+    offer = {"url": "https://s.lv/x", "store": "s.lv", "label": "s.lv"}
+    products = {"version": 2, "products": [dict(PRODUCT, offers=[offer])]}
+    # "×11" alone sent us to the CI logs; the reason tells a bad query from a block
+    prices = {"https://s.lv/x": {"fails": 11, "last_error": "price not found on page"}}
+    assert "×11 — price not found on page" in alerts.health_summary(products, prices)
+    long = alerts.health_summary(products, {"https://s.lv/x": {
+        "fails": 1, "last_error": "<b>anti-bot</b> " + "x" * 400}})
+    assert "&lt;b&gt;anti-bot&lt;/b&gt;" in long and len(long) < 300   # escaped + clipped

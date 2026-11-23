@@ -95,7 +95,7 @@ SALIDZINI = SalidziniAdapter(
     label="salidzini.lv (all LV shops)",
     strategy="requests+playwright",   # /search works via plain requests from residential IPs
     dc_blocked=True,                  # foreign datacenter IPs hit a Turnstile wall…
-    api_country="lv",                 # …but an LV exit passes with PLAIN requests (verified 2026-11-19)
+    api_country="lv",                 # …but an LV exit passes with PLAIN requests on ~3 of 4 calls
     render_api=False,
     daily_only=False,
     selectors={  # CSS fallback only — JSON-LD AggregateOffer above is primary
@@ -107,6 +107,11 @@ SALIDZINI = SalidziniAdapter(
     wait_selector="article",
     notes="Use /search?q= URLs only (slug URLs → hCaptcha). Prices dot-decimal in "
           "JSON-LD, '73,00 €' in HTML. No discount data exists on this site. Verified "
-          "2026-11-19 via ScraperAPI: plain + country_code=lv returns the full offers "
-          "page (no challenge); without the geo pin even renders hit Turnstile.",
+          "2026-11-23 via ScraperAPI: plain + country_code=lv returns the full offers "
+          "page on ~3 of 4 calls — the rest get its Turnstile page, which "
+          "fetch_scraperapi retries; without the geo pin even renders hit Turnstile. "
+          "10 credits a page (bot protection). Query hygiene: a query that resolves to a "
+          "product-group page (brand + series, 'lenovo thinkpad t16 …') is hCaptcha-walled "
+          "from every IP — drop the brand word. A search page is the ~40 cheapest matches, "
+          "so a product with cheaper accessories needs a token only the real item has.",
 )

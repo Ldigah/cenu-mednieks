@@ -14,10 +14,12 @@ except ImportError:  # dotenv optional in CI (env comes from workflow)
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GIST_TOKEN = os.environ.get("GIST_TOKEN", "")
-# ScraperAPI (free plan: 1000 credits/month) — lets CI scrape the Cloudflare-guarded
-# LV aggregators (salidzini/ceno 1 credit plain, kurpirkt 10 credits rendered).
-# Without it, those stores fall back to the direct requests/playwright ladder
-# (works from residential IPs, e.g. local runs).
+# ScraperAPI — lets CI scrape the Cloudflare-guarded LV aggregators, which block
+# GitHub's IPs. Not a flat credit per call: ScraperAPI charges 10 per page behind
+# bot protection (salidzini, ceno), 5 per Amazon page, 1 for ordinary sites, +10
+# rendered (measured 2026-11-23; each response states its own figure in the
+# sa-credit-cost header). Without the key, those stores fall back to the direct
+# requests/playwright ladder (works from residential IPs, e.g. local runs).
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY", "")
 
 
@@ -50,7 +52,10 @@ F_BOT = "bot_state.json"
 F_LOCK = "lock.json"          # runner lock: {"runner": id, "expires": iso} — see state.py
 F_USERS = "users.json"        # Q36: users/roles/watchlists live in the same secret gist
 
-# ScraperAPI budget (Q38): track credits per run in bot_state.usage, warn at 80%
+# ScraperAPI budget (Q38): track credits per run in bot_state.usage, warn at 80%.
+# 1000 is the budget the project was planned around; the account's real limit may
+# differ (its API reported requestLimit 5000 on 2026-11-23). At 10 credits per
+# aggregator page, the three scheduled runs a day spend about 180.
 SCRAPERAPI_MONTHLY_CREDITS = 1000
 USAGE_WARN_FRACTION = 0.8
 

@@ -28,6 +28,7 @@ class StoreAdapter:
     daily_only: bool = False            # expensive fetches: poll once per day, not every run
     api_country: str | None = None      # pin ScraperAPI exit country (country_code=lv avoids some CF rules)
     require_decimal_price: bool = False  # reject separator-less CSS prices (Amazon junk spans)
+    api_fallback: bool = False           # ladder blocked → one ScraperAPI retry (5 credits on Amazon)
 
     def extract(self, html: str) -> parse.Extraction | None:
         soup = BeautifulSoup(html, "html.parser")
