@@ -42,6 +42,12 @@ HISTORY_MAX_POINTS = 500      # per-entry price history cap (~5 months at 3 runs
 REQUEST_TIMEOUT = 20
 FETCH_RETRIES = 1              # one retry max — long anti-bot backoffs waste the run budget
 
+# Gist writes occasionally 409 right after a previous write: GitHub's storage is still
+# committing the last revision (PyGithub #1815; the 2026-11-25 15:14 UTC run lost
+# prices.json this way, ~2 s after the products.json write). A short backoff ride it out.
+GIST_WRITE_RETRIES = 3
+GIST_WRITE_BACKOFF = 1.5       # seconds before the first retry, doubled each attempt
+
 STATE_DIR = "state-local"     # local backend directory (gitignored)
 SEED_PRODUCTS_FILE = "seed_products.json"
 

@@ -1,4 +1,18 @@
-from state import LocalStore, lock_is_free, merge_bot_state, merge_prices, merge_products
+import pytest
+import requests
+
+import state
+from config import GIST_WRITE_BACKOFF, GIST_WRITE_RETRIES
+from state import GistStore, LocalStore, lock_is_free, merge_bot_state, merge_prices, merge_products
+
+
+class FakeResp:
+    def __init__(self, status):
+        self.status_code = status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
 
 
 def test_local_store_roundtrip(tmp_path):
@@ -89,3 +103,73 @@ def test_merge_bot_state_new_keys():
     ours["usage"] = {"month": "2026-10", "credits": 99, "warned": True}
     out = merge_bot_state(theirs, ours)
     assert out["usage"]["month"] == "2026-11"
+
+
+# ---------------------------------------------------------------------------
+# GistStore.write retries (the 2026-11-25 15:14 UTC run lost prices.json to a 409
+# that GitHub returned while still committing the preceding products.json write)
+# ---------------------------------------------------------------------------
+
+def test_gist_write_retries_409_then_succeeds(monkeypatch):
+    s = GistStore("gid", "tok")
+    sleeps = []
+    monkeypatch.setattr(state.time, "sleep", lambda sec: sleeps.append(sec))
+    calls = []
+    statuses = [409, 409, 200]
+
+    def fake_patch(*args, **kwargs):
+        r = FakeResp(statuses.pop(0))
+        calls.append(r)
+        return r
+
+    monkeypatch.setattr(state.requests, "patch", fake_patch)
+    s.write("prices.json", {"u": {"price": 1.0}})
+    assert len(calls) == 3
+    assert sleeps == [GIST_WRITE_BACKOFF, GIST_WRITE_BACKOFF * 2]   # exponential
+
+
+def test_gist_write_raises_after_persistent_409(monkeypatch):
+    s = GistStore("gid", "tok")
+    monkeypatch.setattr(state.time, "sleep", lambda sec: None)
+    calls = []
+
+    def fake_patch(*args, **kwargs):
+        r = FakeResp(409)
+        calls.append(r)
+        return r
+
+    monkeypatch.setattr(state.requests, "patch", fake_patch)
+    with pytest.raises(requests.HTTPError):
+        s.write("prices.json", {"u": {"price": 1.0}})
+    assert len(calls) == GIST_WRITE_RETRIES + 1
+
+
+def test_gist_write_does_not_retry_permanent_errors(monkeypatch):
+    s = GistStore("gid", "tok")
+    monkeypatch.setattr(state.time, "sleep", lambda sec: None)
+    calls = []
+
+    def fake_patch(*args, **kwargs):
+        r = FakeResp(404)
+        calls.append(r)
+        return r
+
+    monkeypatch.setattr(state.requests, "patch", fake_patch)
+    with pytest.raises(requests.HTTPError):
+        s.write("prices.json", {"u": {"price": 1.0}})
+    assert len(calls) == 1      # 404 is not transient — no retry, no backoff
+
+
+def test_gist_write_sends_content_as_json(monkeypatch):
+    s = GistStore("gid", "tok")
+    monkeypatch.setattr(state.time, "sleep", lambda sec: None)
+    seen = {}
+
+    def fake_patch(*args, **kwargs):
+        seen.update(kwargs)
+        return FakeResp(200)
+
+    monkeypatch.setattr(state.requests, "patch", fake_patch)
+    s.write("prices.json", {"u": {"price": 1.0}})
+    assert seen["json"]["files"]["prices.json"]["content"] == \
+        '{\n  "u": {\n    "price": 1.0\n  }\n}'

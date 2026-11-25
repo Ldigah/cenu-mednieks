@@ -9,14 +9,27 @@ reduces duplicated scraping while merges make overlap harmless.
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import requests
 
-from config import F_LOCK, GIST_ID, GIST_TOKEN, SEED_PRODUCTS_FILE, STATE_DIR
+from config import (
+    F_LOCK,
+    GIST_ID,
+    GIST_TOKEN,
+    GIST_WRITE_BACKOFF,
+    GIST_WRITE_RETRIES,
+    SEED_PRODUCTS_FILE,
+    STATE_DIR,
+)
 
 GIST_API = "https://api.github.com/gists"
+
+# Transient write failures worth retrying: 409 is the gist backend still committing
+# the previous revision (see config.GIST_WRITE_RETRIES), 5xx is upstream flakiness.
+GIST_WRITE_RETRY_STATUS = {409, 502, 503, 504}
 
 
 def _now_iso() -> str:
@@ -58,8 +71,12 @@ class GistStore:
 
     def write(self, filename, data):
         content = json.dumps(data, indent=2, ensure_ascii=False)
-        r = requests.patch(f"{GIST_API}/{self.gist_id}", headers=self._headers(),
-                           json={"files": {filename: {"content": content}}}, timeout=20)
+        for attempt in range(GIST_WRITE_RETRIES + 1):
+            r = requests.patch(f"{GIST_API}/{self.gist_id}", headers=self._headers(),
+                               json={"files": {filename: {"content": content}}}, timeout=20)
+            if r.status_code not in GIST_WRITE_RETRY_STATUS or attempt == GIST_WRITE_RETRIES:
+                break
+            time.sleep(GIST_WRITE_BACKOFF * 2 ** attempt)
         r.raise_for_status()
         self._files[filename] = {"content": content, "truncated": False}
 
